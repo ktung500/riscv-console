@@ -11,12 +11,63 @@ volatile uint32_t app_global_p;
 typedef void (*TFunctionPointer)(void);
 void enter_cartridge(void);
 uint32_t call_th_ent(void *param, TThreadEntry entry, uint32_t *gp);
+TThreadID get_tp(void);
 void ContextSwitch(volatile uint32_t **oldsp, volatile uint32_t *newsp);
 #define CART_STAT_REG (*(volatile uint32_t *)0x4000001C)
 #define CONTROLLER_STATUS_REG (*(volatile uint32_t*)0x40000018) // base address of the Multi-Button Controller Status Register
 volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken from riscv-example, main code
 volatile struct TCB* threadArray[256]; 
 volatile int global_tid_nums = 1;  // should only be 2-256
+volatile struct Queue* highPrioQueue;
+volatile struct Queue* norPrioQueue;
+volatile struct Queue* lowPrioQueue;
+volatile struct Queue* readyQ[4];
+
+// all queue functions taken from https://www.geeksforgeeks.org/queue-set-1introduction-and-array-implementation/
+struct Queue {
+    int front, rear, size;
+    unsigned capacity;
+    int* array;
+};
+ 
+// function to create a queue 
+// of given capacity.
+// It initializes size of queue as 0
+struct Queue* createQueue(unsigned capacity)
+{
+    struct Queue* queue = (struct Queue*)malloc(
+        sizeof(struct Queue));
+    queue->capacity = capacity;
+    queue->front = queue->size = 0;
+ 
+    // This is important, see the enqueue
+    queue->rear = capacity - 1;
+    queue->array = (int*)malloc(
+        queue->capacity * sizeof(int));
+    return queue;
+}
+
+void enqueue(struct Queue* queue, int item)
+{
+    if (queue->size == queue->capacity)
+        return;
+    queue->rear = (queue->rear + 1)
+                  % queue->capacity;
+    queue->array[queue->rear] = item;
+    queue->size = queue->size + 1;
+}
+
+// Function to remove an item from queue.
+// It changes front and size
+void* dequeue(struct Queue* queue){
+    if (queue->size == 0)
+        return NULL;
+    void* item = queue->array[queue->front];
+    queue->front = (queue->front + 1)
+                   % queue->capacity;
+    queue->size = queue->size - 1;
+    return item;
+}
 
 struct TCB{
     TThreadID tid;
@@ -90,7 +141,7 @@ void* skeleton(TThreadID thread_id){
     MTIMECMP_HIGH = 0;
     // call entry(param) but make sure to switch the gp right before the call
 
-    TStatus ret_val = call_th_ent(entry, param, app_global_p); 
+    TStatus ret_val = call_th_ent(param, entry, app_global_p); 
     // Disable intterupts before terminate
     //Threadterminate;
     
@@ -113,6 +164,10 @@ TStatus RVCInitialize(uint32_t *gp) {
     idleThread->entry = idle();
     idleThread->stack_base = malloc(1024);
     idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 1024), idle(), idleThread->param, idleThread->tid);
+
+    highPrioQueue = createQueue(256);
+    norPrioQueue = createQueue(256);
+    lowPrioQueue = createQueue(256);
 
     app_global_p = *gp; 
     if (app_global_p == 0) {
@@ -216,10 +271,44 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
+        //readyQ = createQueue(4);
         currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), skeleton(currThread->tid), currThread->param, currThread->tid); // initializes stack/ activates thread
-        // need to make queues next
         currThread->state = RVCOS_THREAD_STATE_READY;
+        if(currThread->priority == RVCOS_THREAD_PRIORITY_HIGH){
+            enqueue(highPrioQueue, currThread);
+        }
+        else if(currThread->priority = RVCOS_THREAD_PRIORITY_NORMAL){
+            enqueue(norPrioQueue, currThread);
+        }
+        else{
+            enqueue(lowPrioQueue, currThread);
+        }
+        //enqueue(readyQ, highPrioQueue);
+        //enqueue(readyQ, norPrioQueue);
+        //enqueue(readyQ, lowPrioQueue);
+        //enqueue(readyQ, threadArray[1]);  // threadArray[1] will always be the idle thread
+        readyQ[0] = highPrioQueue;
+        readyQ[1] = norPrioQueue;
+        readyQ[2] = lowPrioQueue;
+        readyQ[4] = threadArray[1];
+        schedule(readyQ);
+        // call scheduler
         return RVCOS_STATUS_SUCCESS; 
+    }
+}
+
+void schedule(struct Queue* readyQ){
+    struct TCB* current =  threadArray[get_tp()];
+    struct TCB* nextT;
+    for(int i = 0; i < 4; i++){
+        nextT = dequeue(&readyQ[i]);
+        if (nextT != NULL){
+            continue;
+        }
+    }
+    nextT->state = RVCOS_THREAD_STATE_RUNNING;
+    if(current != nextT){
+        ContextSwitch(&current->sp, nextT->sp);
     }
 }
 
