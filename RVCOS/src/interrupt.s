@@ -73,7 +73,6 @@ enter_cartridge:
     addi    sp,sp,12
     ret
 
-
 call_th_ent:
     addi    sp,sp,-4
     sw      ra, 0(sp)
@@ -86,7 +85,6 @@ call_th_ent:
     lw      ra, 0(sp)
     addi    sp, sp, 4
     ret
-
 
 ContextSwitch:
     addi    sp,sp,-52

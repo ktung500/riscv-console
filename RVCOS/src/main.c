@@ -297,7 +297,32 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
     }
 }
 
-void schedule(struct Queue* readyQ){
+TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
+    struct TCB* currThread = threadArray[thread]; 
+    currThread->state= RVCOS_THREAD_STATE_DEAD;
+    currThread->ret_val = returnval;
+    // if there are waiters
+    // if (waiters) {
+    //     tcb[waiter].returnval = rv;
+    //     tcb[waiter].state = RVCOS_THREAD_STATE_READY;
+    // }
+}
+
+TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
+    struct TCB* currThread = threadArray[get_tp()]; 
+    struct TCB* waitThread = threadArray[thread]; 
+    if (waitThread->state != RVCOS_THREAD_STATE_DEAD) {
+        currThread->state = RVCOS_THREAD_STATE_WAITING;
+        //->waiter = thread;
+        schedule();
+        *returnref = currThread->ret_val;
+        return RVCOS_STATUS_SUCCESS;
+    } else {
+        *returnref = waitThread->ret_val;
+    }
+}
+
+void schedule(){
     struct TCB* current =  threadArray[get_tp()];
     struct TCB* nextT;
     for(int i = 0; i < 4; i++){
