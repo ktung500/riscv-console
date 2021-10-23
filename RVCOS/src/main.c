@@ -18,10 +18,12 @@ void ContextSwitch(volatile uint32_t **oldsp, volatile uint32_t *newsp);
 volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken from riscv-example, main code
 volatile struct TCB* threadArray[256]; 
 volatile int global_tid_nums = 1;  // should only be 2-256
+volatile int num_of_threads = 0;
 volatile struct Queue* highPrioQueue;
 volatile struct Queue* norPrioQueue;
 volatile struct Queue* lowPrioQueue;
 volatile struct Queue* readyQ[4];
+volatile struct Queue* waiters;
 
 // all queue functions taken from https://www.geeksforgeeks.org/queue-set-1introduction-and-array-implementation/
 struct Queue {
@@ -80,7 +82,7 @@ struct TCB{
     TThreadEntry entry;
     void *param;
     int ticks;
-    int wait_id;
+    TThreadID wait_id;
     TStatus ret_val;
     uint8_t* stack_base; // return value of malloc
 };
@@ -141,7 +143,7 @@ void* skeleton(TThreadID thread_id){
     MTIMECMP_HIGH = 0;
     // call entry(param) but make sure to switch the gp right before the call
 
-    TStatus ret_val = call_th_ent(param, entry, app_global_p); 
+    currThread->ret_val = call_th_ent(param, entry, app_global_p); 
     // Disable intterupts before terminate
     //Threadterminate;
     
@@ -168,6 +170,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     highPrioQueue = createQueue(256);
     norPrioQueue = createQueue(256);
     lowPrioQueue = createQueue(256);
+    waiters = createQueue(256);
 
     app_global_p = *gp; 
     if (app_global_p == 0) {
@@ -227,21 +230,45 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
     }
     else{
         //void* newThreadStack[memsize];
-        global_tid_nums++;  // starts at 2, since global_tid_nums is initialized to 2
-        if(global_tid_nums > 256){
+        if(num_of_threads > 254){  // number of threads exceeeds what is possible
             return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
         }
-        struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
-        newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
-        newThread->entry = entry;
-        newThread->param = param;
-        newThread->memsize = memsize;
-        newThread->tid = global_tid_nums; 
-        tid = newThread->tid;
-        newThread->state = RVCOS_THREAD_STATE_CREATED;
-        newThread->priority = prio;
-        //newThread->pid = -1; 
-        threadArray[global_tid_nums] = newThread;
+        else if(global_tid_nums == 256) { // need to parse through the threadArray and get the num of the first empty space
+            TThreadID currThreadID; 
+            for(int i = 0; i < 256; i++){
+                if(threadArray[i] == NULL){
+                    currThreadID = i;
+                    continue;
+                }
+            }
+            struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
+            newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
+            newThread->entry = entry;
+            newThread->param = param;
+            newThread->memsize = memsize;
+            newThread->tid = currThreadID; 
+            tid = newThread->tid;
+            newThread->state = RVCOS_THREAD_STATE_CREATED;
+            newThread->priority = prio;
+            //newThread->pid = -1; 
+            threadArray[currThreadID] = newThread;
+            num_of_threads++;
+        }
+        else{
+            struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
+            newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
+            newThread->entry = entry;
+            newThread->param = param;
+            newThread->memsize = memsize;
+            newThread->tid = global_tid_nums; 
+            tid = newThread->tid;
+            newThread->state = RVCOS_THREAD_STATE_CREATED;
+            newThread->priority = prio;
+            //newThread->pid = -1; 
+            threadArray[global_tid_nums] = newThread;
+            num_of_threads++;
+            global_tid_nums++;  // starts at 2, since global_tid_nums is initialized to 2
+        }
     }
     return RVCOS_STATUS_SUCCESS;
 }
@@ -255,6 +282,7 @@ TStatus RVCThreadDelete(TThreadID thread){
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
+        num_of_threads--;
         threadArray[thread] = NULL;
         free(currThread->stack_base);
         free(currThread);
@@ -274,15 +302,7 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
         //readyQ = createQueue(4);
         currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), skeleton(currThread->tid), currThread->param, currThread->tid); // initializes stack/ activates thread
         currThread->state = RVCOS_THREAD_STATE_READY;
-        if(currThread->priority == RVCOS_THREAD_PRIORITY_HIGH){
-            enqueue(highPrioQueue, currThread);
-        }
-        else if(currThread->priority = RVCOS_THREAD_PRIORITY_NORMAL){
-            enqueue(norPrioQueue, currThread);
-        }
-        else{
-            enqueue(lowPrioQueue, currThread);
-        }
+        enqueueThread(currThread);
         //enqueue(readyQ, highPrioQueue);
         //enqueue(readyQ, norPrioQueue);
         //enqueue(readyQ, lowPrioQueue);
@@ -297,15 +317,46 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
     }
 }
 
+void enqueueThread(struct TCB* thread){
+    if(thread->priority == RVCOS_THREAD_PRIORITY_HIGH){
+            enqueue(highPrioQueue, thread);
+    }
+    else if(thread->priority = RVCOS_THREAD_PRIORITY_NORMAL){
+        enqueue(norPrioQueue, thread);
+    }
+    else{
+        enqueue(lowPrioQueue, thread);
+    }
+}
+
 TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
-    struct TCB* currThread = threadArray[thread]; 
-    currThread->state= RVCOS_THREAD_STATE_DEAD;
+    if (threadArray[thread] == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    struct TCB* currThread = threadArray[thread];
+    if (currThread->state != RVCOS_THREAD_STATE_DEAD || currThread->state != RVCOS_THREAD_STATE_CREATED){
+        return  RVCOS_STATUS_ERROR_INVALID_STATE;
+    }
+    currThread->state = RVCOS_THREAD_STATE_DEAD;
     currThread->ret_val = returnval;
     // if there are waiters
     // if (waiters) {
     //     tcb[waiter].returnval = rv;
     //     tcb[waiter].state = RVCOS_THREAD_STATE_READY;
     // }
+    if(waiters->size != 0){
+        for(int i = 0; i < waiters->size; i++){
+            struct TCB* waiter = dequeue(&waiters);
+            if (waiter->wait_id == thread){
+                waiter->ret_val = returnval;
+                waiter->state = RVCOS_THREAD_STATE_READY;
+                enqueueThread(waiter);
+            }
+            else{
+                enqueue(waiters, waiter);
+            }
+        }
+    }
 }
 
 TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
@@ -314,6 +365,8 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
     if (waitThread->state != RVCOS_THREAD_STATE_DEAD) {
         currThread->state = RVCOS_THREAD_STATE_WAITING;
         //->waiter = thread;
+        currThread->wait_id = thread;
+        enqueue(waiters,currThread);
         schedule();
         *returnref = currThread->ret_val;
         return RVCOS_STATUS_SUCCESS;
@@ -322,8 +375,27 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
     }
 }
 
+TStatus RVCThreadID(TThreadIDRef threadref){
+    if (threadref == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    threadref = get_tp();
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCThreadState(TThreadID thread, TThreadStateRef state){
+    if (state == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    else if (threadArray[thread] == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    state = threadArray[thread]->state;
+    return RVCOS_STATUS_SUCCESS;
+}
+
 void schedule(){
-    struct TCB* current =  threadArray[get_tp()];
+    struct TCB* current = threadArray[get_tp()];
     struct TCB* nextT;
     for(int i = 0; i < 4; i++){
         nextT = dequeue(&readyQ[i]);
