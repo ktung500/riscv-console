@@ -247,7 +247,7 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             newThread->param = param;
             newThread->memsize = memsize;
             newThread->tid = currThreadID; 
-            tid = newThread->tid;
+            *tid = newThread->tid;
             newThread->state = RVCOS_THREAD_STATE_CREATED;
             newThread->priority = prio;
             //newThread->pid = -1; 
@@ -262,16 +262,10 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             newThread->memsize = memsize;
             newThread->tid = global_tid_nums; 
             *tid = global_tid_nums;
-            if (global_tid_nums == 2) {
-                RVCWriteText("Only 2\n", 7);
-            }
             newThread->state = RVCOS_THREAD_STATE_CREATED;
             newThread->priority = prio;
             //newThread->pid = -1; 
             threadArray[global_tid_nums] = newThread;
-            if (threadArray[2]->tid == NULL){
-                RVCWriteText("Invalid ACT_ID\n",15);
-            }
             num_of_threads++;
             global_tid_nums++;  // starts at 2, since global_tid_nums is initialized to 2
         }
@@ -297,34 +291,16 @@ TStatus RVCThreadDelete(TThreadID thread){
 }
 
 TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and context switching in here
-    RVCWriteText("Step 1\n", 7);
-    // if ((int)thread == 2){
-    //     RVCWriteText("Step t2\n", 8);
-    // }
-    // if ((int)thread == 0){
-    //     RVCWriteText("Step t0\n", 8);
-    // }
-    // if ((int)thread == 1){
-    //     RVCWriteText("Step t1\n", 8);
-    // }
     if (threadArray[thread] == NULL){
-        RVCWriteText("Invalid ID\n",11);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
-    RVCWriteText("Step 2\n", 7);
     struct TCB* currThread = threadArray[thread];
-    RVCWriteText("Step 3\n", 7);
-    if (threadArray[thread]->state == RVCOS_THREAD_STATE_CREATED){
-        RVCWriteText("Crea state\n",11);
-    }
     if (currThread->state != RVCOS_THREAD_STATE_DEAD && currThread->state != RVCOS_THREAD_STATE_CREATED){
-        RVCWriteText("Step 4\n", 7);
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
-        RVCWriteText("Step 5\n", 7);
         //readyQ = createQueue(4);
-        currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), &skeleton, currThread->param, currThread->tid); // initializes stack/ activates thread
+        currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), &skeleton, currThread->tid, currThread->tid); // initializes stack/ activates thread
         currThread->state = RVCOS_THREAD_STATE_READY;
         enqueueThread(currThread);
         //enqueue(readyQ, highPrioQueue);
@@ -422,13 +398,14 @@ void schedule(){
     struct TCB* current = threadArray[get_tp()];
     struct TCB* nextT;
     for(int i = 0; i < 4; i++){
-        nextT = dequeue(&readyQ[i]);
+        nextT = dequeue(readyQ[i]);
         if (nextT != NULL){
-            continue;
+            break;
         }
     }
     nextT->state = RVCOS_THREAD_STATE_RUNNING;
     if(current != nextT){
+        RVCWriteText("Step 1\n", 7); // currently goes into context switch but returns to the wrong
         ContextSwitch(&current->sp, nextT->sp);
     }
 }
