@@ -41,19 +41,19 @@ __attribute__((always_inline)) inline void set_gp(uint32_t addr) {
 #define MTIMECMP_HIGH   (*((volatile uint32_t *)0x40000014))
 #define CONTROLLER      (*((volatile uint32_t *)0x40000018))
 
-// void sbrk(int incr) {
-//   extern char _end;		/* Defined by the linker */
-//   static char *heap_end;
-//   char *prev_heap_end;
+char *_sbrk(int incr) {
+  extern char _heapbase;		/* Defined by the linker */
+  static char *heap_end;
+  char *prev_end;
 
-//   if (heap_end == 0) {
-//     heap_end = &_end;
-//   }
-//   prev_heap_end = heap_end;
+  if (heap_end == 0) {
+    heap_end = &_heapbase;
+  }
+  prev_end = heap_end;
 
-//   heap_end += incr;
-//   return;
-// }
+  prev_end += incr;
+  return (char*)prev_end;
+}
 
 void init(void){
     uint8_t *Source = _erodata;
