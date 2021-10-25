@@ -474,11 +474,11 @@ int main() {
     while(1){                      // do it in assembly in the enter_cartridge function
         if(CART_STAT_REG & 0x1){
             enter_cartridge();
-            // while(1){
-            //     if(!(CART_STAT_REG&0x1)){
-            //         break;
-            //     }
-            // }
+            while(1){
+                 if(!(CART_STAT_REG&0x1)){
+                     break;
+                 }
+            }
         }
     }
     return 0;
