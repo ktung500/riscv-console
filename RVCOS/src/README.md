@@ -1,5 +1,5 @@
 # Project 2
-## Nicholas McLean 915804621c & Kevin Tung 915936476
+## Nicholas McLean 915804621 & Kevin Tung 915936476
 ### Sources
 https://www.tutorialspoint.com/data_structures_algorithms/queue_program_in_c.htm
 Based our queue's off this implementation. 

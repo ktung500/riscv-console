@@ -128,6 +128,9 @@ struct TCB{
     uint8_t* stack_base; // return value of malloc
 };
 
+void enqueueThread(struct TCB* thread);
+void schedule();
+
 int getTState(struct TCB* thread){
     return thread->state;
 }
@@ -207,17 +210,11 @@ TStatus RVCInitialize(uint32_t *gp) {
     idleThread->tid = 1;
     idleThread->state = RVCOS_THREAD_STATE_READY;   // idle thread needs to be in ready state
     idleThread->priority = RVCOS_THREAD_PRIORITY_LOWEST;
-    //idleThread->pid = -1;
     threadArray[1] = idleThread;
-    idleThread->entry = idle;
+    idleThread->entry = (TThreadEntry)idle;
     uint32_t idleThreadStack[1024];
-    idleThread->stack_base = idleThreadStack;
-    idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 1024), idleThread->entry, idleThread->param, idleThread->tid);
-
-    // highPrioQueue = createQueue(256);
-    // norPrioQueue = createQueue(256);
-    // lowPrioQueue = createQueue(256);
-    // waiters = createQueue(256);
+    idleThread->stack_base = (uint8_t*)idleThreadStack;
+    idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 1024), (TThreadEntry)(idleThread->entry), (uint32_t)(idleThread->param), idleThread->tid);
 
     app_global_p = *gp;
     if (app_global_p == 0) {
@@ -290,7 +287,7 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             }
             struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
             uint32_t newThreadStack[memsize];
-            newThread->stack_base = newThreadStack; // initialize stack of memsize for the newThread
+            newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
@@ -306,7 +303,7 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
             // newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
             uint32_t newThreadStack[memsize];
-            newThread->stack_base = newThreadStack; // initialize stack of memsize for the newThread
+            newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
@@ -350,7 +347,7 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
     }
     else{
         //readyQ = createQueue(4);
-        actThread->sp = init_Stack((uint32_t*)(actThread->stack_base + actThread->memsize), &skeleton, actThread->tid, thread);
+        actThread->sp = init_Stack((uint32_t*)(actThread->stack_base + actThread->memsize), (TThreadEntry)skeleton, actThread->tid, thread);
         //currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), &skeleton, currThread->tid, thread); // initializes stack/ activates thread
         actThread->state = RVCOS_THREAD_STATE_READY;
 
@@ -465,7 +462,7 @@ void schedule(){
         }
         //RVCWriteText("Step 1\n", 7); // currently goes into context switch but returns to the wrong
         //ContextSwitch(&current->sp, nextT->sp);
-        ContextSwitch(&current->sp, nextT->sp);
+        ContextSwitch((void *)&current->sp, nextT->sp);
     }
 }
 
@@ -487,13 +484,13 @@ int main() {
 uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint32_t p5,uint32_t code){
     switch(code){
         case 0x00: return RVCInitialize((void *)p1);
-        case 0x01: return RVCThreadCreate((void *)p1, p2, p3, p4, p5);
-        case 0x02: return RVCThreadDelete((void *)p1);
-        case 0x03: return RVCThreadActivate((void *)p1);
-        case 0x04: return RVCThreadTerminate((void *)p1, p2);
-        case 0x05: return RVCThreadWait((void *)p1, p2);
+        case 0x01: return RVCThreadCreate((TThreadEntry)p1, (void*)p2, p3, p4, (TThreadIDRef)p5);
+        case 0x02: return RVCThreadDelete((TThreadID)p1);
+        case 0x03: return RVCThreadActivate((TThreadID)p1);
+        case 0x04: return RVCThreadTerminate((TThreadID)p1, p2);
+        case 0x05: return RVCThreadWait((TThreadID)p1, (TThreadReturnRef)p2);
         case 0x06: return RVCThreadID((void *)p1);
-        case 0x07: return RVCThreadState((void *)p1, p2);
+        case 0x07: return RVCThreadState((TThreadID)p1, (uint32_t*)p2);
         // case 0x08: return RVCThreadSleep((void *)p1);
         // case 0x09: return RVCTickMS((void *)p1);
         // case 0x0A: return RVCTickCount((void *)p1);
