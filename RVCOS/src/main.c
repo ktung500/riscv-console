@@ -40,8 +40,8 @@ void insert(int data, int priority) {
     if (priority == 0){
         if(highSize != 256) {
             if(highRear == 255) {
-                highRear = -1;            
-            }       
+                highRear = -1;
+            }
 
             highPQ[++highRear] = data;
             highSize++;
@@ -50,8 +50,8 @@ void insert(int data, int priority) {
     } else if (priority == 1){
         if(norSize != 256) {
             if(norRear == 255) {
-                norRear = -1;            
-            }       
+                norRear = -1;
+            }
 
             norPQ[++norRear] = data;
             norSize++;
@@ -60,20 +60,20 @@ void insert(int data, int priority) {
     } else if (priority == 2){
         if(lowSize != 256) {
             if(lowRear == 255) {
-                lowRear = -1;            
-            }       
+                lowRear = -1;
+            }
 
             lowPQ[++lowRear] = data;
             lowSize++;
             //RVCWriteText("Ins low\n", 8);
         }
-    }   
-    
+    }
+
 //    if(size != 256) {
-	
+
 //       if(rear == 255) {
-//          rear = -1;            
-//       }       
+//          rear = -1;
+//       }
 
 //       PQ[++rear] = data;
 //       size++;
@@ -107,7 +107,7 @@ int removeData() {
     else{
         //data = 1;
     }
-   return data;  
+   return data;
 }
 // all queue functions taken from https://www.geeksforgeeks.org/queue-set-1introduction-and-array-implementation/
 
@@ -118,7 +118,7 @@ struct TCB{
     TThreadState state; // different states: running, ready, dead, waiting, created
     TThreadPriority priority; // different priorities: high, normal, low
     //int pid;
-    uint32_t *sp; 
+    uint32_t *sp;
     TMemorySize memsize;
     TThreadEntry entry;
     void *param;
@@ -175,22 +175,22 @@ TThreadEntry idle(){
 }
 
 void* skeleton(TThreadID thread_id){
-    struct TCB* currThread = threadArray[thread_id]; 
+    struct TCB* currThread = threadArray[thread_id];
     TThreadEntry entry = currThread->entry;
     void* param = currThread->param;
-    asm volatile ("csrw mie, %0" : : "r"(0x888));   // Enable all interrupt soruces: csr_write_mie(0x888); 
-    asm volatile ("csrsi mstatus, 0x8");            // Global interrupt enable: csr_enable_interrupts()   
+    asm volatile ("csrw mie, %0" : : "r"(0x888));   // Enable all interrupt soruces: csr_write_mie(0x888);
+    asm volatile ("csrsi mstatus, 0x8");            // Global interrupt enable: csr_enable_interrupts()
     MTIMECMP_LOW = 1;
     MTIMECMP_HIGH = 0;
     // call entry(param) but make sure to switch the gp right before the call
 
     // ARE WE NOT SWITCHING THE GP???
-    currThread->ret_val = call_th_ent(param, entry, &app_global_p); 
+    currThread->ret_val = call_th_ent(param, entry, &app_global_p);
     asm volatile ("csrci mstatus, 0x8");
     RVCThreadTerminate(thread_id, currThread->ret_val);
     // Disable intterupts before terminate
     //Threadterminate;
-    
+
 }
 
 TStatus RVCInitialize(uint32_t *gp) {
@@ -202,7 +202,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     threadArray[0] = mainThread;
     set_tp(mainThread->tid);
 
-    
+
     struct TCB* idleThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of idle thread
     idleThread->tid = 1;
     idleThread->state = RVCOS_THREAD_STATE_READY;   // idle thread needs to be in ready state
@@ -219,7 +219,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     // lowPrioQueue = createQueue(256);
     // waiters = createQueue(256);
 
-    app_global_p = *gp; 
+    app_global_p = *gp;
     if (app_global_p == 0) {
     // Failure since it didn't change global variable
         return RVCOS_STATUS_FAILURE;
@@ -231,12 +231,12 @@ TStatus RVCInitialize(uint32_t *gp) {
 
 TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
     if (buffer == NULL){
-        return RVCOS_STATUS_ERROR_INVALID_PARAMETER; 
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     else{
         //write out writesize characters to the location specified by buffer
         if (cursor < 2304) { // 2304 = 64 columns x 36 rows
-        
+
             for (int i = 0; i < (int)writesize; i++) {
                 char c = buffer[i];
                 VIDEO_MEMORY[cursor] = ' ';
@@ -259,7 +259,7 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
         return RVCOS_STATUS_SUCCESS;
     }
 }
- 
+
 TStatus RVCReadController(SControllerStatusRef statusref){
     if (statusref == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
@@ -270,7 +270,7 @@ TStatus RVCReadController(SControllerStatusRef statusref){
     }
 }
 
-TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize, 
+TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
                         TThreadPriority prio, TThreadIDRef tid){
     if (entry == NULL || tid == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
@@ -281,7 +281,7 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
         }
         else if(global_tid_nums == 256) { // need to parse through the threadArray and get the num of the first empty space
-            TThreadID currThreadID; 
+            TThreadID currThreadID;
             for(int i = 0; i < 256; i++){
                 if(threadArray[i] == NULL){
                     currThreadID = i;
@@ -294,11 +294,11 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
-            newThread->tid = currThreadID; 
+            newThread->tid = currThreadID;
             *tid = newThread->tid;
             newThread->state = RVCOS_THREAD_STATE_CREATED;
             newThread->priority = prio;
-            //newThread->pid = -1; 
+            //newThread->pid = -1;
             threadArray[currThreadID] = newThread;
             num_of_threads++;
         }
@@ -310,11 +310,11 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
-            newThread->tid = global_tid_nums; 
+            newThread->tid = global_tid_nums;
             *tid = global_tid_nums;
             newThread->state = RVCOS_THREAD_STATE_CREATED;
             newThread->priority = prio;
-            //newThread->pid = -1; 
+            //newThread->pid = -1;
             threadArray[global_tid_nums] = newThread;
             num_of_threads++;
             global_tid_nums++;  // starts at 2, since global_tid_nums is initialized to 2
@@ -336,7 +336,7 @@ TStatus RVCThreadDelete(TThreadID thread){
         threadArray[thread] = NULL;
         free(currThread->stack_base);
         free(currThread);
-        return RVCOS_STATUS_SUCCESS; 
+        return RVCOS_STATUS_SUCCESS;
     }
 }
 
@@ -363,7 +363,7 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
         }*/
         schedule();
         // call scheduler
-        return RVCOS_STATUS_SUCCESS; 
+        return RVCOS_STATUS_SUCCESS;
     }
 }
 
@@ -415,8 +415,8 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
 }
 
 TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
-    struct TCB* currThread = threadArray[get_tp()]; 
-    struct TCB* waitThread = threadArray[thread]; 
+    struct TCB* currThread = threadArray[get_tp()];
+    struct TCB* waitThread = threadArray[thread];
     if (waitThread->state != RVCOS_THREAD_STATE_DEAD) {
         currThread->state = RVCOS_THREAD_STATE_WAITING;
         //->waiter = thread;
@@ -470,14 +470,14 @@ void schedule(){
 }
 
 int main() {
-    saved_sp = &CART_STAT_REG; // was used to see how the compiler would assign the save_sp so we could 
+    saved_sp = &CART_STAT_REG; // was used to see how the compiler would assign the save_sp so we could
     while(1){                      // do it in assembly in the enter_cartridge function
         if(CART_STAT_REG & 0x1){
             enter_cartridge();
             while(1){
-                 if(!(CART_STAT_REG&0x1)){
-                     break;
-                 }
+                if(!(CART_STAT_REG&0x1)){
+                    break;
+                }
             }
         }
     }
