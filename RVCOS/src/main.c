@@ -5,7 +5,7 @@
 volatile int global; // used for global cursor
 volatile uint32_t controller_status = 0;
 volatile uint32_t *saved_sp;
-volatile uint32_t app_global_p;
+uint32_t app_global_p;
 #define MTIMECMP_LOW    (*((volatile uint32_t *)0x40000010))
 #define MTIMECMP_HIGH   (*((volatile uint32_t *)0x40000014))
 typedef void (*TFunctionPointer)(void);
@@ -16,7 +16,7 @@ void ContextSwitch(volatile uint32_t **oldsp, volatile uint32_t *newsp);
 #define CART_STAT_REG (*(volatile uint32_t *)0x4000001C)
 #define CONTROLLER_STATUS_REG (*(volatile uint32_t*)0x40000018) // base address of the Multi-Button Controller Status Register
 volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken from riscv-example, main code
-volatile struct TCB* threadArray[256]; 
+struct TCB* threadArray[256];
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
 volatile int num_of_threads = 0;
 volatile struct Queue* highPrioQueue;
@@ -24,52 +24,92 @@ volatile struct Queue* norPrioQueue;
 volatile struct Queue* lowPrioQueue;
 volatile struct Queue* readyQ[4];
 volatile struct Queue* waiters;
+int highPQ[256];
+int highFront = 0;
+int highRear = -1;
+int highSize = 0;
+int norPQ[256];
+int norFront = 0;
+int norRear = -1;
+int norSize = 0;
+int lowPQ[256];
+int lowFront = 0;
+int lowRear = -1;
+int lowSize = 0;
 
+//void insert(int data, int* PQ, int front, int rear, int size ) {
+void insert(int data, int priority) {
+    if (priority == 0){
+        if(highSize != 256) {
+            if(highRear == 255) {
+                highRear = -1;            
+            }       
+
+            highPQ[++highRear] = data;
+            highSize++;
+            RVCWriteText("Ins high\n", 9);
+        }
+    } else if (priority == 1){
+        if(norSize != 256) {
+            if(norRear == 255) {
+                norRear = -1;            
+            }       
+
+            norPQ[++norRear] = data;
+            norSize++;
+            RVCWriteText("Ins nor\n", 8);
+        }
+    } else if (priority == 2){
+        if(lowSize != 256) {
+            if(lowRear == 255) {
+                lowRear = -1;            
+            }       
+
+            lowPQ[++lowRear] = data;
+            lowSize++;
+            RVCWriteText("Ins low\n", 8);
+        }
+    }   
+    
+//    if(size != 256) {
+	
+//       if(rear == 255) {
+//          rear = -1;            
+//       }       
+
+//       PQ[++rear] = data;
+//       size++;
+//    }
+}
+
+int removeData() {
+    int data = -1;
+    if (highSize > 0) {
+        data = highPQ[highFront++];
+        if(highFront == 256) {
+            highFront = 0;
+        }
+        highSize--;
+        RVCWriteText("Rem high\n", 9);
+    } else if (norSize > 0) {
+        data = norPQ[norFront++];
+        if(norFront == 256) {
+            norFront = 0;
+        }
+        norSize--;
+        RVCWriteText("Rem nor\n", 8);
+    } else if (lowSize > 0) {
+        data = lowPQ[lowFront++];
+        if(lowFront == 256) {
+            lowFront = 0;
+        }
+        lowSize--;
+        RVCWriteText("Rem low\n", 8);
+    }
+   return data;  
+}
 // all queue functions taken from https://www.geeksforgeeks.org/queue-set-1introduction-and-array-implementation/
-struct Queue {
-    int front, rear, size;
-    unsigned capacity;
-    int* array;
-};
- 
-// function to create a queue 
-// of given capacity.
-// It initializes size of queue as 0
-struct Queue* createQueue(unsigned capacity)
-{
-    struct Queue* queue = (struct Queue*)malloc(
-        sizeof(struct Queue));
-    queue->capacity = capacity;
-    queue->front = queue->size = 0;
- 
-    // This is important, see the enqueue
-    queue->rear = capacity - 1;
-    queue->array = (int*)malloc(
-        queue->capacity * sizeof(int));
-    return queue;
-}
 
-void enqueue(struct Queue* queue, int item)
-{
-    if (queue->size == queue->capacity)
-        return;
-    queue->rear = (queue->rear + 1)
-                  % queue->capacity;
-    queue->array[queue->rear] = item;
-    queue->size = queue->size + 1;
-}
-
-// Function to remove an item from queue.
-// It changes front and size
-void* dequeue(struct Queue* queue){
-    if (queue->size == 0)
-        return NULL;
-    void* item = queue->array[queue->front];
-    queue->front = (queue->front + 1)
-                   % queue->capacity;
-    queue->size = queue->size - 1;
-    return item;
-}
 
 struct TCB{
     TThreadID tid;
@@ -143,7 +183,8 @@ void* skeleton(TThreadID thread_id){
     MTIMECMP_HIGH = 0;
     // call entry(param) but make sure to switch the gp right before the call
 
-    currThread->ret_val = call_th_ent(param, entry, app_global_p); 
+    // ARE WE NOT SWITCHING THE GP???
+    currThread->ret_val = call_th_ent(param, entry, &app_global_p); 
     // Disable intterupts before terminate
     //Threadterminate;
     
@@ -163,14 +204,14 @@ TStatus RVCInitialize(uint32_t *gp) {
     idleThread->priority = RVCOS_THREAD_PRIORITY_LOWEST;
     //idleThread->pid = -1;
     threadArray[1] = idleThread;
-    idleThread->entry = &idle;
+    idleThread->entry = idle;
     idleThread->stack_base = malloc(1024);
     idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 1024), idleThread->entry, idleThread->param, idleThread->tid);
 
-    highPrioQueue = createQueue(256);
-    norPrioQueue = createQueue(256);
-    lowPrioQueue = createQueue(256);
-    waiters = createQueue(256);
+    // highPrioQueue = createQueue(256);
+    // norPrioQueue = createQueue(256);
+    // lowPrioQueue = createQueue(256);
+    // waiters = createQueue(256);
 
     app_global_p = *gp; 
     if (app_global_p == 0) {
@@ -256,7 +297,9 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
         }
         else{
             struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
-            newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
+            // newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
+            uint32_t newThreadStack[1024];
+            newThread->stack_base = newThreadStack;
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
@@ -300,17 +343,11 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
     }
     else{
         //readyQ = createQueue(4);
-        currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), &skeleton, currThread->tid, currThread->tid); // initializes stack/ activates thread
+        currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + 1024), &skeleton, currThread->tid, thread);
+        //currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), &skeleton, currThread->tid, thread); // initializes stack/ activates thread
         currThread->state = RVCOS_THREAD_STATE_READY;
+
         enqueueThread(currThread);
-        //enqueue(readyQ, highPrioQueue);
-        //enqueue(readyQ, norPrioQueue);
-        //enqueue(readyQ, lowPrioQueue);
-        //enqueue(readyQ, threadArray[1]);  // threadArray[1] will always be the idle thread
-        readyQ[0] = highPrioQueue;
-        readyQ[1] = norPrioQueue;
-        readyQ[2] = lowPrioQueue;
-        readyQ[4] = threadArray[1];
         schedule();
         // call scheduler
         return RVCOS_STATUS_SUCCESS; 
@@ -319,13 +356,13 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
 
 void enqueueThread(struct TCB* thread){
     if(thread->priority == RVCOS_THREAD_PRIORITY_HIGH){
-            enqueue(highPrioQueue, thread);
+        insert(thread->tid, 0);
     }
     else if(thread->priority = RVCOS_THREAD_PRIORITY_NORMAL){
-        enqueue(norPrioQueue, thread);
+        insert(thread->tid, 1);
     }
     else{
-        enqueue(lowPrioQueue, thread);
+        insert(thread->tid, 2);
     }
 }
 
@@ -344,19 +381,19 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     //     tcb[waiter].returnval = rv;
     //     tcb[waiter].state = RVCOS_THREAD_STATE_READY;
     // }
-    if(waiters->size != 0){
-        for(int i = 0; i < waiters->size; i++){
-            struct TCB* waiter = dequeue(&waiters);
-            if (waiter->wait_id == thread){
-                waiter->ret_val = returnval;
-                waiter->state = RVCOS_THREAD_STATE_READY;
-                enqueueThread(waiter);
-            }
-            else{
-                enqueue(waiters, waiter);
-            }
-        }
-    }
+    // if(waiters->size != 0){
+    //     for(int i = 0; i < waiters->size; i++){
+    //         struct TCB* waiter = dequeue(&waiters);
+    //         if (waiter->wait_id == thread){
+    //             waiter->ret_val = returnval;
+    //             waiter->state = RVCOS_THREAD_STATE_READY;
+    //             //enqueueThread(waiter);
+    //         }
+    //         else{
+    //             //enqueue(waiters, waiter);
+    //         }
+    //     }
+    // }
 }
 
 TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
@@ -366,7 +403,7 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
         currThread->state = RVCOS_THREAD_STATE_WAITING;
         //->waiter = thread;
         currThread->wait_id = thread;
-        enqueue(waiters,currThread);
+        //enqueue(waiters,currThread);
         schedule();
         *returnref = currThread->ret_val;
         return RVCOS_STATUS_SUCCESS;
@@ -396,16 +433,17 @@ TStatus RVCThreadState(TThreadID thread, TThreadStateRef state){
 
 void schedule(){
     struct TCB* current = threadArray[get_tp()];
+    int nextTid = 0;
     struct TCB* nextT;
-    for(int i = 0; i < 4; i++){
-        nextT = dequeue(readyQ[i]);
-        if (nextT != NULL){
-            break;
-        }
-    }
+    RVCWriteText("Test Start\n", 11);
+    nextTid = removeData();
+    nextTid = 2;
+    nextT = threadArray[nextTid];
     nextT->state = RVCOS_THREAD_STATE_RUNNING;
-    if(current != nextT){
+    
+    if(current->tid != nextT->tid){
         RVCWriteText("Step 1\n", 7); // currently goes into context switch but returns to the wrong
+        //ContextSwitch(&current->sp, nextT->sp);
         ContextSwitch(&current->sp, nextT->sp);
     }
 }
