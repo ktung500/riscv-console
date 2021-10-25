@@ -47,7 +47,7 @@ void insert(int data, int priority) {
 
             highPQ[++highRear] = data;
             highSize++;
-            RVCWriteText("Ins high\n", 9);
+            //RVCWriteText("Ins high\n", 9);
         }
     } else if (priority == 1){
         if(norSize != 256) {
@@ -57,7 +57,7 @@ void insert(int data, int priority) {
 
             norPQ[++norRear] = data;
             norSize++;
-            RVCWriteText("Ins nor\n", 8);
+            //RVCWriteText("Ins nor\n", 8);
         }
     } else if (priority == 2){
         if(lowSize != 256) {
@@ -67,7 +67,7 @@ void insert(int data, int priority) {
 
             lowPQ[++lowRear] = data;
             lowSize++;
-            RVCWriteText("Ins low\n", 8);
+            //RVCWriteText("Ins low\n", 8);
         }
     }   
     
@@ -90,21 +90,24 @@ int removeData() {
             highFront = 0;
         }
         highSize--;
-        RVCWriteText("Rem high\n", 9);
+        //RVCWriteText("Rem high\n", 9);
     } else if (norSize > 0) {
         data = norPQ[norFront++];
         if(norFront == 256) {
             norFront = 0;
         }
         norSize--;
-        RVCWriteText("Rem nor\n", 8);
+        //RVCWriteText("Rem nor\n", 8);
     } else if (lowSize > 0) {
         data = lowPQ[lowFront++];
         if(lowFront == 256) {
             lowFront = 0;
         }
         lowSize--;
-        RVCWriteText("Rem low\n", 8);
+        //RVCWriteText("Rem low\n", 8);
+    }
+    else{
+        data = 1;
     }
    return data;  
 }
@@ -185,6 +188,8 @@ void* skeleton(TThreadID thread_id){
 
     // ARE WE NOT SWITCHING THE GP???
     currThread->ret_val = call_th_ent(param, entry, &app_global_p); 
+    asm volatile ("csrci mstatus, 0x8");
+    RVCThreadTerminate(thread_id, currThread->ret_val);
     // Disable intterupts before terminate
     //Threadterminate;
     
@@ -193,7 +198,7 @@ void* skeleton(TThreadID thread_id){
 TStatus RVCInitialize(uint32_t *gp) {
     struct TCB* mainThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of main thread
     mainThread->tid = 0;
-    mainThread->state = RVCOS_THREAD_STATE_CREATED;
+    mainThread->state = RVCOS_THREAD_STATE_RUNNING;
     mainThread->priority = RVCOS_THREAD_PRIORITY_NORMAL;
     //mainThread->pid = -1; // main thread has no parent so set to -1
     threadArray[0] = mainThread;
@@ -205,7 +210,8 @@ TStatus RVCInitialize(uint32_t *gp) {
     //idleThread->pid = -1;
     threadArray[1] = idleThread;
     idleThread->entry = idle;
-    idleThread->stack_base = malloc(1024);
+    uint32_t idleThreadStack[1024];
+    idleThread->stack_base = idleThreadStack;
     idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 1024), idleThread->entry, idleThread->param, idleThread->tid);
 
     // highPrioQueue = createQueue(256);
@@ -283,7 +289,8 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
                 }
             }
             struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
-            newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
+            uint32_t newThreadStack[memsize];
+            newThread->stack_base = newThreadStack; // initialize stack of memsize for the newThread
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
@@ -298,8 +305,8 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
         else{
             struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
             // newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
-            uint32_t newThreadStack[1024];
-            newThread->stack_base = newThreadStack;
+            uint32_t newThreadStack[memsize];
+            newThread->stack_base = newThreadStack; // initialize stack of memsize for the newThread
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
@@ -348,6 +355,11 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
         currThread->state = RVCOS_THREAD_STATE_READY;
 
         enqueueThread(currThread);
+        /*if(currThread->priority > threadArray[get_tp()]){
+            threadArray[get_tp()]->state = RVCOS_THREAD_STATE_READY;
+            enqueueThread(threadArray[get_tp()]);
+            schedule();
+        }*/
         schedule();
         // call scheduler
         return RVCOS_STATUS_SUCCESS; 
@@ -371,7 +383,7 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     struct TCB* currThread = threadArray[thread];
-    if (currThread->state != RVCOS_THREAD_STATE_DEAD || currThread->state != RVCOS_THREAD_STATE_CREATED){
+    if (currThread->state == RVCOS_THREAD_STATE_DEAD || currThread->state == RVCOS_THREAD_STATE_CREATED){
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     currThread->state = RVCOS_THREAD_STATE_DEAD;
@@ -394,6 +406,11 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     //         }
     //     }
     // }
+    //If the thread terminating is the current running thread, then you will definitely need to schedule.
+    if(threadArray[get_tp()] == threadArray[thread]){
+        schedule();
+    }
+    return RVCOS_STATUS_SUCCESS;
 }
 
 TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
@@ -435,14 +452,16 @@ void schedule(){
     struct TCB* current = threadArray[get_tp()];
     int nextTid = 0;
     struct TCB* nextT;
-    RVCWriteText("Test Start\n", 11);
+    //RVCWriteText("Test Start\n", 11);
     nextTid = removeData();
-    nextTid = 2;
+    //nextTid = 2;
     nextT = threadArray[nextTid];
     nextT->state = RVCOS_THREAD_STATE_RUNNING;
     
     if(current->tid != nextT->tid){
-        RVCWriteText("Step 1\n", 7); // currently goes into context switch but returns to the wrong
+        //current->state = RVCOS_THREAD_STATE_READY;
+        //enqueueThread(current);
+        //RVCWriteText("Step 1\n", 7); // currently goes into context switch but returns to the wrong
         //ContextSwitch(&current->sp, nextT->sp);
         ContextSwitch(&current->sp, nextT->sp);
     }
