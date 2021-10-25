@@ -1,5 +1,5 @@
 .section .text, "ax"
-.global _interrupt_handler, enter_cartridge, call_th_ent, ContextSwitch, get_tp
+.global _interrupt_handler, enter_cartridge, call_th_ent, ContextSwitch, get_tp, set_tp
 .extern saved_sp
 
 _interrupt_handler:
@@ -121,4 +121,8 @@ ContextSwitch:
 
 get_tp:
     mv    a0,tp
+    ret
+
+set_tp:
+    mv tp,a0
     ret

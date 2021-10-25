@@ -12,6 +12,7 @@ typedef void (*TFunctionPointer)(void);
 void enter_cartridge(void);
 uint32_t call_th_ent(void *param, TThreadEntry entry, uint32_t *gp);
 TThreadID get_tp(void);
+void set_tp(TThreadID tid);
 void ContextSwitch(volatile uint32_t **oldsp, volatile uint32_t *newsp);
 #define CART_STAT_REG (*(volatile uint32_t *)0x4000001C)
 #define CONTROLLER_STATUS_REG (*(volatile uint32_t*)0x40000018) // base address of the Multi-Button Controller Status Register
@@ -107,7 +108,7 @@ int removeData() {
         //RVCWriteText("Rem low\n", 8);
     }
     else{
-        data = 1;
+        //data = 1;
     }
    return data;  
 }
@@ -202,6 +203,8 @@ TStatus RVCInitialize(uint32_t *gp) {
     mainThread->priority = RVCOS_THREAD_PRIORITY_NORMAL;
     //mainThread->pid = -1; // main thread has no parent so set to -1
     threadArray[0] = mainThread;
+    set_tp(mainThread->tid);
+
     
     struct TCB* idleThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of idle thread
     idleThread->tid = 1;
@@ -344,20 +347,21 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
     if (threadArray[thread] == NULL){
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
-    struct TCB* currThread = threadArray[thread];
-    if (currThread->state != RVCOS_THREAD_STATE_DEAD && currThread->state != RVCOS_THREAD_STATE_CREATED){
+    struct TCB* actThread = threadArray[thread];
+    if (actThread->state != RVCOS_THREAD_STATE_DEAD && actThread->state != RVCOS_THREAD_STATE_CREATED){
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
         //readyQ = createQueue(4);
-        currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + 1024), &skeleton, currThread->tid, thread);
+        actThread->sp = init_Stack((uint32_t*)(actThread->stack_base + actThread->memsize), &skeleton, actThread->tid, thread);
         //currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), &skeleton, currThread->tid, thread); // initializes stack/ activates thread
-        currThread->state = RVCOS_THREAD_STATE_READY;
+        actThread->state = RVCOS_THREAD_STATE_READY;
 
-        enqueueThread(currThread);
-        /*if(currThread->priority > threadArray[get_tp()]){
-            threadArray[get_tp()]->state = RVCOS_THREAD_STATE_READY;
-            enqueueThread(threadArray[get_tp()]);
+        enqueueThread(actThread);
+        /*struct TCB* currentThread = threadArray[get_tp()];
+        if(actThread->priority > currentThread->priority){
+            currentThread->state = RVCOS_THREAD_STATE_READY;
+            enqueueThread(currentThread);
             schedule();
         }*/
         schedule();
@@ -407,7 +411,7 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     //     }
     // }
     //If the thread terminating is the current running thread, then you will definitely need to schedule.
-    if(threadArray[get_tp()] == threadArray[thread]){
+    if(threadArray[get_tp()] == currThread){
         schedule();
     }
     return RVCOS_STATUS_SUCCESS;
@@ -457,10 +461,11 @@ void schedule(){
     //nextTid = 2;
     nextT = threadArray[nextTid];
     nextT->state = RVCOS_THREAD_STATE_RUNNING;
-    
     if(current->tid != nextT->tid){
-        //current->state = RVCOS_THREAD_STATE_READY;
-        //enqueueThread(current);
+        if(current->state != RVCOS_THREAD_STATE_DEAD && nextT->state != RVCOS_THREAD_STATE_DEAD){
+            current->state = RVCOS_THREAD_STATE_READY;
+            enqueueThread(current);
+        }
         //RVCWriteText("Step 1\n", 7); // currently goes into context switch but returns to the wrong
         //ContextSwitch(&current->sp, nextT->sp);
         ContextSwitch(&current->sp, nextT->sp);
@@ -472,6 +477,11 @@ int main() {
     while(1){                      // do it in assembly in the enter_cartridge function
         if(CART_STAT_REG & 0x1){
             enter_cartridge();
+            while(1){
+                if(!(CART_STAT_REG&0x1)){
+                    break;
+                }
+            }
         }
     }
     return 0;
