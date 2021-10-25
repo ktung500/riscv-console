@@ -2,7 +2,8 @@
 #include <stdlib.h>
 #include "RVCOS.h"
 
-volatile int global; // used for global cursor
+volatile int global;
+volatile int cursor; // used for global cursor
 volatile uint32_t controller_status = 0;
 volatile uint32_t *saved_sp;
 uint32_t app_global_p;
@@ -20,10 +21,6 @@ volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken
 struct TCB* threadArray[256];
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
 volatile int num_of_threads = 0;
-volatile struct Queue* highPrioQueue;
-volatile struct Queue* norPrioQueue;
-volatile struct Queue* lowPrioQueue;
-volatile struct Queue* readyQ[4];
 volatile struct Queue* waiters;
 int highPQ[256];
 int highFront = 0;
@@ -238,21 +235,21 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
     }
     else{
         //write out writesize characters to the location specified by buffer
-        if (global < 2304) { // 2304 = 64 columns x 36 rows
+        if (cursor < 2304) { // 2304 = 64 columns x 36 rows
         
             for (int i = 0; i < (int)writesize; i++) {
                 char c = buffer[i];
-                VIDEO_MEMORY[global] = ' ';
+                VIDEO_MEMORY[cursor] = ' ';
                 if (c == '\n') {
-                    global += 0x40;
-                    global -= 1;
-                    VIDEO_MEMORY[global] = c;
+                    cursor += 0x40;
+                    cursor = cursor & ~0x3F;
+                    VIDEO_MEMORY[cursor] = c;
                 } else if(c == '\b') {
-                    global -= 1;
-                    VIDEO_MEMORY[global] = c;
+                    cursor -= 1;
+                    VIDEO_MEMORY[cursor] = c;
                 } else {
-                    VIDEO_MEMORY[global] = c;
-                    global++;
+                    VIDEO_MEMORY[cursor] = c;
+                    cursor++;
                 }
             }
             //VIDEO_MEMORY[global] = *buffer;
@@ -477,11 +474,11 @@ int main() {
     while(1){                      // do it in assembly in the enter_cartridge function
         if(CART_STAT_REG & 0x1){
             enter_cartridge();
-            while(1){
-                if(!(CART_STAT_REG&0x1)){
-                    break;
-                }
-            }
+            // while(1){
+            //     if(!(CART_STAT_REG&0x1)){
+            //         break;
+            //     }
+            // }
         }
     }
     return 0;
