@@ -434,7 +434,7 @@ TStatus RVCThreadID(TThreadIDRef threadref){
     if (threadref == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-    threadref = get_tp();
+    *threadref = get_tp();
     return RVCOS_STATUS_SUCCESS;
 }
 
@@ -445,7 +445,7 @@ TStatus RVCThreadState(TThreadID thread, TThreadStateRef state){
     else if (threadArray[thread] == NULL){
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
-    state = threadArray[thread]->state;
+    *state = threadArray[thread]->state;
     return RVCOS_STATUS_SUCCESS;
 }
 
