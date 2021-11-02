@@ -20,9 +20,12 @@ void ContextSwitch(volatile uint32_t **oldsp, volatile uint32_t *newsp);
 #define CONTROLLER_STATUS_REG (*(volatile uint32_t*)0x40000018) // base address of the Multi-Button Controller Status Register
 volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken from riscv-example, main code
 struct TCB* threadArray[256];
+struct TCB* waiter[256];
+volatile int numWatiers;
+struct TCB* sleepers[256];
+volatile int numSleepers;
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
 volatile int num_of_threads = 0;
-volatile struct Queue* waiters;
 int highPQ[256];
 int highFront = 0;
 int highRear = -1;
@@ -516,6 +519,10 @@ TStatus RVCThreadSleep(TTick tick) {
     } else {
         struct TCB* current = threadArray[get_tp()];
         current->ticks = tick;
+        current->state = RVCOS_THREAD_STATE_WAITING;
+        sleepers[numSleepers] = current;
+        numSleepers++;
+        schedule();
         return RVCOS_STATUS_SUCCESS;
     }
 }
@@ -529,7 +536,13 @@ TStatus RVCTickMS(uint32_t *tickmsref) {
 }
 
 TStatus RVCTickCount(TTickRef tickref) {
-
+    if (tickref == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER ;
+    }
+    else{
+        *tickref = tick_count;
+        return RVCOS_STATUS_SUCCESS;
+    }
 }
 
 int main() {
@@ -557,9 +570,9 @@ uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint3
         case 0x05: return RVCThreadWait((TThreadID)p1, (TThreadReturnRef)p2);
         case 0x06: return RVCThreadID((void *)p1);
         case 0x07: return RVCThreadState((TThreadID)p1, (uint32_t*)p2);
-        // case 0x08: return RVCThreadSleep((void *)p1);
-        // case 0x09: return RVCTickMS((void *)p1);
-        // case 0x0A: return RVCTickCount((void *)p1);
+        case 0x08: return RVCThreadSleep((void *)p1);
+        case 0x09: return RVCTickMS((void *)p1);
+        case 0x0A: return RVCTickCount((void *)p1);
         case 0x0B: return RVCWriteText((void *)p1, p2);
         case 0x0C: return RVCReadController((void *)p1);
     }

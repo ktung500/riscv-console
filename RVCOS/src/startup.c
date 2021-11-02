@@ -1,5 +1,7 @@
 #include <stdint.h>
 #include "RVCOS.h"
+
+
 extern uint8_t _erodata[];
 extern uint8_t _data[];
 extern uint8_t _edata[];
@@ -78,12 +80,41 @@ void init(void){
 extern volatile int global;
 extern volatile int tick_count;
 extern volatile uint32_t controller_status;
+extern struct TCB* sleepers[256];
+extern volatile int numSleepers;
+extern void schedule();
+extern void enqueueThread(struct TCB* thread);
+
+struct TCB{
+    TThreadID tid;
+    uint32_t *gp;
+    TThreadState state; // different states: running, ready, dead, waiting, created
+    TThreadPriority priority; // different priorities: high, normal, low
+    //int pid;
+    uint32_t *sp;
+    TMemorySize memsize;
+    TThreadEntry entry;
+    void *param;
+    int ticks;
+    TThreadID wait_id;
+    TStatus ret_val;
+    uint8_t* stack_base; // return value of malloc
+};
 
 void c_interrupt_handler(void){
     uint64_t NewCompare = (((uint64_t)MTIMECMP_HIGH)<<32) | MTIMECMP_LOW;
     NewCompare += 2;
     MTIMECMP_HIGH = NewCompare>>32;
     MTIMECMP_LOW = NewCompare;
+    tick_count++;
+    for(int i = 0; i < numSleepers; i++){
+        struct TCB* thread = sleepers[i];
+        thread->ticks--;
+        if(thread->ticks == 0){  // thread wakes up
+            enqueueThread(thread);
+            schedule();
+        }
+    }
     global++;
     controller_status = CONTROLLER;
 }
