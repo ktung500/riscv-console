@@ -4,6 +4,7 @@
 
 volatile int global;
 volatile int cursor; // used for global cursor
+volatile int tick_count;
 volatile uint32_t controller_status = 0;
 volatile uint32_t *saved_sp;
 uint32_t app_global_p;
@@ -464,6 +465,22 @@ void schedule(){
         //ContextSwitch(&current->sp, nextT->sp);
         ContextSwitch((void *)&current->sp, nextT->sp);
     }
+}
+
+TStatus RVCThreadSleep(TTick tick) {
+    
+}
+
+TStatus RVCTickMS(uint32_t *tickmsref) {
+    if (tickmsref == NULL) {
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    tickmsref = 2; // 2000/MTIME;
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCTickCount(TTickRef tickref) {
+
 }
 
 int main() {
