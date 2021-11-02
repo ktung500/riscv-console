@@ -81,34 +81,58 @@ void insert(int data, int priority) {
 //    }
 }
 
-int removeData() {
+int removeData(TThreadPriority prio) {
     int data = -1;
-    if (highSize > 0) {
-        data = highPQ[highFront++];
+    // if (prio == NULL) {
+    //     if (highSize > 0) {
+    //         data = highPQ[highFront++];
+    //     if(highFront == 256) {
+    //         highFront = 0;
+    //     }
+    //     highSize--;
+    //     //RVCWriteText("Rem high\n", 9);
+    //     } else if (norSize > 0) {
+    //         data = norPQ[norFront++];
+    //         if(norFront == 256) {
+    //             norFront = 0;
+    //         }
+    //         norSize--;
+    //         //RVCWriteText("Rem nor\n", 8);
+    //     } else if (lowSize > 0) {
+    //         data = lowPQ[lowFront++];
+    //         if(lowFront == 256) {
+    //             lowFront = 0;
+    //         }
+    //         lowSize--;
+    //         //RVCWriteText("Rem low\n", 8);
+    //     }
+    //     else{
+    //         //data = 1;
+    //     }
+    if (prio == RVCOS_THREAD_PRIORITY_HIGH) {
+        if (highSize > 0) {
+            data = highPQ[highFront++];
+        }
         if(highFront == 256) {
             highFront = 0;
         }
         highSize--;
-        //RVCWriteText("Rem high\n", 9);
-    } else if (norSize > 0) {
+    } else if (prio == RVCOS_THREAD_PRIORITY_NORMAL) {
         data = norPQ[norFront++];
-        if(norFront == 256) {
-            norFront = 0;
-        }
-        norSize--;
-        //RVCWriteText("Rem nor\n", 8);
-    } else if (lowSize > 0) {
+            if(norFront == 256) {
+                norFront = 0;
+            }
+            norSize--;
+    } else if (prio == RVCOS_THREAD_PRIORITY_LOW) {
         data = lowPQ[lowFront++];
-        if(lowFront == 256) {
-            lowFront = 0;
-        }
-        lowSize--;
-        //RVCWriteText("Rem low\n", 8);
+            if(lowFront == 256) {
+                lowFront = 0;
+            }
+            lowSize--;
+    } else {
+        return 1;
     }
-    else{
-        //data = 1;
-    }
-   return data;
+    return data;
 }
 // all queue functions taken from https://www.geeksforgeeks.org/queue-set-1introduction-and-array-implementation/
 
@@ -452,7 +476,15 @@ void schedule(){
     int nextTid = 0;
     struct TCB* nextT;
     //RVCWriteText("Test Start\n", 11);
-    nextTid = removeData();
+    if (highSize != 0) {
+        nextTid = removeData(RVCOS_THREAD_PRIORITY_HIGH);
+    } else if (norSize != 0) {
+        nextTid = removeData(RVCOS_THREAD_PRIORITY_NORMAL);
+    } else if (lowSize != 0) {
+        nextTid = removeData(RVCOS_THREAD_PRIORITY_LOW);
+    } else {
+        nextTid = 1;
+    }
     //nextTid = 2;
     nextT = threadArray[nextTid];
     nextT->state = RVCOS_THREAD_STATE_RUNNING;
@@ -474,14 +506,17 @@ TStatus RVCThreadSleep(TTick tick) {
     else if(tick == RVCOS_TIMEOUT_IMMEDIATE){
         struct TCB* current = threadArray[get_tp()];
         TThreadPriority currPrio = current->priority;
-        int next = removeData();
-        struct TCB* nextRT = threadArray[next];
-        if(nextRT->priority == current->priority){
-            enqueueThread(nextRT);
-        }
-        else{
+        
+        int next = removeData(currPrio);
+        if (next == 1) {
             enqueueThread(current);
         }
+        struct TCB* nextRT = threadArray[next];
+        enqueueThread(nextRT);
+    } else {
+        struct TCB* current = threadArray[get_tp()];
+        current->ticks = tick;
+        return RVCOS_STATUS_SUCCESS;
     }
 }
 
