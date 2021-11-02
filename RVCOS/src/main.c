@@ -468,7 +468,21 @@ void schedule(){
 }
 
 TStatus RVCThreadSleep(TTick tick) {
-    
+    if (tick == RVCOS_TIMEOUT_INFINITE){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    else if(tick == RVCOS_TIMEOUT_IMMEDIATE){
+        struct TCB* current = threadArray[get_tp()];
+        TThreadPriority currPrio = current->priority;
+        int next = removeData();
+        struct TCB* nextRT = threadArray[next];
+        if(nextRT->priority == current->priority){
+            enqueueThread(nextRT);
+        }
+        else{
+            enqueueThread(current);
+        }
+    }
 }
 
 TStatus RVCTickMS(uint32_t *tickmsref) {
