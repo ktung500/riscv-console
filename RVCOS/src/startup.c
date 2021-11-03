@@ -87,6 +87,8 @@ extern void schedule();
 extern void enqueueThread(struct TCB* thread);
 extern volatile int sleeperCursor;
 extern TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize);
+extern TThreadID get_tp(void);
+extern struct TCB* threadArray[256];
 
 struct TCB{
     TThreadID tid;
@@ -111,7 +113,10 @@ void c_interrupt_handler(void){
     MTIMECMP_LOW = NewCompare;
     tick_count++;
     // need to make sure its a timer interrupt
-    
+    // save mepc
+    // struct TCB* curr = threadArray[get_tp()];
+    // curr->state = RVCOS_THREAD_STATE_READY;
+    // enqueueThread(curr);
     global++;
     controller_status = CONTROLLER;
     for(int i = 0; i < sleeperCursor ; i++){
@@ -122,10 +127,12 @@ void c_interrupt_handler(void){
             thread->state = RVCOS_THREAD_STATE_READY;
             numSleepers--;
             enqueueThread(thread);
-            schedule();
+            schedule(); 
             // need to handle decrementing the numSleepers correctly
         }
     }
+     
+    
     /*if(numSleepers == 0){
         schedule();
     }*/

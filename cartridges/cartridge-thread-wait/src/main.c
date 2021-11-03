@@ -80,7 +80,6 @@ TThreadReturn HighPriorityThread(void *param){
         return 1;
     }
     WriteString("Valid State\n");
-    WriteString("about to return");
     return EXPECTED_RETURN;
 }
 
