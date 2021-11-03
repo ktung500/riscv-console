@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stddef.h>
 #include "RVCOS.h"
 
 
@@ -84,6 +85,8 @@ extern struct TCB* sleepers[256];
 extern volatile int numSleepers;
 extern void schedule();
 extern void enqueueThread(struct TCB* thread);
+extern volatile int sleeperCursor;
+extern TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize);
 
 struct TCB{
     TThreadID tid;
@@ -108,16 +111,23 @@ void c_interrupt_handler(void){
     MTIMECMP_LOW = NewCompare;
     tick_count++;
     // need to make sure its a timer interrupt
-    for(int i = 0; i < numSleepers; i++){
+    
+    global++;
+    controller_status = CONTROLLER;
+    for(int i = 0; i < sleeperCursor ; i++){
         struct TCB* thread = sleepers[i];
-        thread->ticks--;
+        thread->ticks = thread->ticks - 1;
         if(thread->ticks == 0){  // thread wakes up
+            sleepers[i] == NULL;
+            thread->state = RVCOS_THREAD_STATE_READY;
+            numSleepers--;
             enqueueThread(thread);
             schedule();
             // need to handle decrementing the numSleepers correctly
         }
     }
-    global++;
-    controller_status = CONTROLLER;
+    /*if(numSleepers == 0){
+        schedule();
+    }*/
 }
 

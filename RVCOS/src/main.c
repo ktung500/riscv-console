@@ -24,6 +24,7 @@ struct TCB* waiter[256];
 volatile int numWatiers;
 struct TCB* sleepers[256];
 volatile int numSleepers;
+volatile int sleeperCursor;
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
 volatile int num_of_threads = 0;
 int highPQ[256];
@@ -230,6 +231,8 @@ uint32_t *init_Stack(uint32_t* sp, TThreadEntry function, uint32_t param, uint32
 }
 
 TThreadEntry idle(){
+    asm volatile ("csrw mie, %0" : : "r"(0x888));   // Enable all interrupt soruces: csr_write_mie(0x888);
+    asm volatile ("csrsi mstatus, 0x8");            // Global interrupt enable: csr_enable_interrupts()
     while(1);
 }
 
@@ -239,8 +242,8 @@ void* skeleton(TThreadID thread_id){
     void* param = currThread->param;
     asm volatile ("csrw mie, %0" : : "r"(0x888));   // Enable all interrupt soruces: csr_write_mie(0x888);
     asm volatile ("csrsi mstatus, 0x8");            // Global interrupt enable: csr_enable_interrupts()
-    MTIMECMP_LOW = 1;
-    MTIMECMP_HIGH = 0;
+    //MTIMECMP_LOW = 1;
+    //MTIMECMP_HIGH = 0;
     // call entry(param) but make sure to switch the gp right before the call
 
     // ARE WE NOT SWITCHING THE GP???
@@ -408,13 +411,13 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
         actThread->state = RVCOS_THREAD_STATE_READY;
 
         enqueueThread(actThread);
-        /*struct TCB* currentThread = threadArray[get_tp()];
+        struct TCB* currentThread = threadArray[get_tp()];
         if(actThread->priority > currentThread->priority){
             currentThread->state = RVCOS_THREAD_STATE_READY;
             enqueueThread(currentThread);
             schedule();
-        }*/
-        schedule();
+        }
+        //schedule();
         // call scheduler
         return RVCOS_STATUS_SUCCESS;
     }
@@ -441,24 +444,31 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     currThread->state = RVCOS_THREAD_STATE_DEAD;
-    currThread->ret_val = returnval;
+    *currThread->ret_val = returnval;
     // if there are waiters
     // if (waiters) {
     //     tcb[waiter].returnval = rv;
     //     tcb[waiter].state = RVCOS_THREAD_STATE_READY;
     // }
     if(waitSize != 0){
+        int flag = 0;
         for(int i = 0; i < waitSize; i++){
             struct TCB* waiter = removeWaiter();
             if (waiter->wait_id == thread){
-                waiter->ret_val = returnval;
+                RVCWriteText("gets here1\n",11);
+                *waiter->ret_val = returnval;
                 waiter->state = RVCOS_THREAD_STATE_READY;
                 enqueueThread(waiter);
-                schedule();
+                if(waiter->priority > currThread->priority){
+                    flag = 1;
+                }
             }
             else{
                 insertWaiter(waiter->tid);
             }
+        }
+        if(flag == 1){
+            schedule();
         }
     }
     //If the thread terminating is the current running thread, then you will definitely need to schedule.
@@ -478,12 +488,13 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
     struct TCB* currThread = threadArray[get_tp()];
     struct TCB* waitThread = threadArray[thread];
     if (waitThread->state != RVCOS_THREAD_STATE_DEAD) {
+        RVCWriteText("gets here\n",10);
+        currThread->ret_val = returnref;
         currThread->state = RVCOS_THREAD_STATE_WAITING;
         //->waiter = thread;
         currThread->wait_id = thread;
         //enqueue(waiters,currThread);
         insertWaiter(currThread->tid);
-        currThread->ret_val = returnref;
         schedule();
     } else {
         waitThread->ret_val = returnref;
@@ -528,7 +539,7 @@ void schedule(){
     nextT = threadArray[nextTid];
     nextT->state = RVCOS_THREAD_STATE_RUNNING;
     if(current->tid != nextT->tid){
-        if(current->state != RVCOS_THREAD_STATE_DEAD && nextT->state != RVCOS_THREAD_STATE_DEAD){
+        if(current->state != RVCOS_THREAD_STATE_DEAD && current->state != RVCOS_THREAD_STATE_WAITING && nextT->state != RVCOS_THREAD_STATE_DEAD){
             current->state = RVCOS_THREAD_STATE_READY;
             enqueueThread(current);
         }
@@ -556,7 +567,8 @@ TStatus RVCThreadSleep(TTick tick) {
         struct TCB* current = threadArray[get_tp()];
         current->ticks = tick;
         current->state = RVCOS_THREAD_STATE_WAITING;
-        sleepers[numSleepers] = current;
+        sleepers[sleeperCursor] = current;
+        sleeperCursor++;
         numSleepers++;
         schedule();
         return RVCOS_STATUS_SUCCESS;
