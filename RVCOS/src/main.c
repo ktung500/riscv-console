@@ -38,6 +38,34 @@ int lowPQ[256];
 int lowFront = 0;
 int lowRear = -1;
 int lowSize = 0;
+// for waiter queue
+int waiters[256];
+int waitFront = 0;
+int waitRear = -1;
+int waitSize = 0;
+
+void insertWaiter(int tid){
+     if(waitSize != 256) {
+            if(waitRear == 255) {
+                waitRear = -1;
+            }
+
+            waiters[++waitRear] = tid;
+            waitSize++;
+        }
+}
+
+int removeWaiter(){
+    int data = -1;
+    if (waitSize > 0) {
+            data = waiters[waitFront++];
+        }
+        if(waitFront == 256) {
+            waitFront = 0;
+        }
+        waitSize--;
+    return data;
+}
 
 //void insert(int data, int* PQ, int front, int rear, int size ) {
 void insert(int data, int priority) {
@@ -419,19 +447,20 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     //     tcb[waiter].returnval = rv;
     //     tcb[waiter].state = RVCOS_THREAD_STATE_READY;
     // }
-    // if(waiters->size != 0){
-    //     for(int i = 0; i < waiters->size; i++){
-    //         struct TCB* waiter = dequeue(&waiters);
-    //         if (waiter->wait_id == thread){
-    //             waiter->ret_val = returnval;
-    //             waiter->state = RVCOS_THREAD_STATE_READY;
-    //             //enqueueThread(waiter);
-    //         }
-    //         else{
-    //             //enqueue(waiters, waiter);
-    //         }
-    //     }
-    // }
+    if(waitSize != 0){
+        for(int i = 0; i < waitSize; i++){
+            struct TCB* waiter = removeWaiter();
+            if (waiter->wait_id == thread){
+                waiter->ret_val = returnval;
+                waiter->state = RVCOS_THREAD_STATE_READY;
+                enqueueThread(waiter);
+                schedule();
+            }
+            else{
+                insertWaiter(waiter->tid);
+            }
+        }
+    }
     //If the thread terminating is the current running thread, then you will definitely need to schedule.
     if(threadArray[get_tp()] == currThread){
         schedule();
@@ -447,8 +476,9 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
         //->waiter = thread;
         currThread->wait_id = thread;
         //enqueue(waiters,currThread);
-        schedule();
+        insertWaiter(currThread->tid);
         *returnref = currThread->ret_val;
+        schedule();
         return RVCOS_STATUS_SUCCESS;
     } else {
         *returnref = waitThread->ret_val;
