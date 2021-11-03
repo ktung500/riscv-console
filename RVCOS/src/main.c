@@ -180,7 +180,7 @@ struct TCB{
     void *param;
     int ticks;
     TThreadID wait_id;
-    TStatus ret_val;
+    TThreadReturn *ret_val;
     uint8_t* stack_base; // return value of malloc
 };
 
@@ -469,6 +469,12 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
 }
 
 TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
+    if (threadArray[thread] == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    else if(returnref == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
     struct TCB* currThread = threadArray[get_tp()];
     struct TCB* waitThread = threadArray[thread];
     if (waitThread->state != RVCOS_THREAD_STATE_DEAD) {
@@ -477,12 +483,12 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
         currThread->wait_id = thread;
         //enqueue(waiters,currThread);
         insertWaiter(currThread->tid);
-        *returnref = currThread->ret_val;
+        currThread->ret_val = returnref;
         schedule();
-        return RVCOS_STATUS_SUCCESS;
     } else {
-        *returnref = waitThread->ret_val;
+        waitThread->ret_val = returnref;
     }
+    return RVCOS_STATUS_SUCCESS;
 }
 
 TStatus RVCThreadID(TThreadIDRef threadref){
