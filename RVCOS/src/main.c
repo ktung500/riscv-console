@@ -158,7 +158,7 @@ struct TCB{
     int ticks;
     TThreadID wait_id;
     TThreadReturn *ret_val;
-    uint8_t* stack_base; // return value of malloc
+    uint8_t *stack_base; // return value of malloc
 };
 
 void enqueueThread(struct TCB* thread);
@@ -248,8 +248,9 @@ TStatus RVCInitialize(uint32_t *gp) {
     idleThread->priority = RVCOS_THREAD_PRIORITY_LOWEST;
     threadArray[1] = idleThread;
     idleThread->entry = (TThreadEntry)idle;
-    uint32_t idleThreadStack[1024];
-    idleThread->stack_base = (uint8_t*)idleThreadStack;
+    //uint32_t idleThreadStack[1024];
+    //idleThread->stack_base = (uint8_t*)idleThreadStack;
+    idleThread->stack_base = (uint8_t*)malloc(1024);
     idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 1024), (TThreadEntry)(idleThread->entry), (uint32_t)(idleThread->param), idleThread->tid);
 
     app_global_p = *gp;
@@ -322,8 +323,9 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
                 }
             }
             struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
-            uint32_t newThreadStack[memsize];
-            newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
+            //uint32_t newThreadStack[memsize];
+            //newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
+            newThread->stack_base = (uint8_t*)malloc(memsize);
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
@@ -338,8 +340,10 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
         else{
             struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
             // newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
-            uint32_t newThreadStack[memsize];
-            newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
+            //uint32_t newThreadStack[memsize];
+            //newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
+            uint32_t *base = malloc(memsize);
+            newThread->stack_base = (uint8_t*)base;
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
@@ -383,7 +387,7 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
     }
     else{
         //readyQ = createQueue(4);
-        actThread->sp = init_Stack((uint32_t*)(actThread->stack_base + actThread->memsize), (TThreadEntry)skeleton, actThread->tid, thread);
+        actThread->sp = init_Stack((uint32_t *)(actThread->stack_base + actThread->memsize), (TThreadEntry)skeleton, actThread->tid, thread);
         //currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), &skeleton, currThread->tid, thread); // initializes stack/ activates thread
         actThread->state = RVCOS_THREAD_STATE_READY;
         //RVCWriteText("Activate: ", 10);
@@ -548,7 +552,7 @@ void schedule(){
         //RVCWriteText("Step 1\n", 7); // currently goes into context switch but returns to the wrong
         //ContextSwitch(&current->sp, nextT->sp);
         RVCWriteText("context switch\n", 15);
-        ContextSwitch((void *)&threadArray[get_tp()]->sp, threadArray[nextTid]->sp);
+        ContextSwitch((void *)&current->sp, threadArray[nextTid]->sp);
     }
 }
 

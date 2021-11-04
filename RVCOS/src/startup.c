@@ -54,7 +54,8 @@ char *_sbrk(int incr) {
   }
   prev_end = heap_end;
 
-  prev_end += incr;
+  //prev_end += incr;
+  heap_end += incr;
   return (char*)prev_end;
 }
 
