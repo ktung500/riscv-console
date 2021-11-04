@@ -224,9 +224,9 @@ void* skeleton(TThreadID thread_id){
     // call entry(param) but make sure to switch the gp right before the call
 
     // ARE WE NOT SWITCHING THE GP???
-    currThread->ret_val = call_th_ent(param, entry, &app_global_p);
+    *currThread->ret_val = call_th_ent(param, entry, &app_global_p);
     asm volatile ("csrci mstatus, 0x8");
-    RVCThreadTerminate(thread_id, currThread->ret_val);
+    RVCThreadTerminate(thread_id, *currThread->ret_val);
     // Disable intterupts before terminate
     //Threadterminate;
 
@@ -386,19 +386,15 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
         actThread->sp = init_Stack((uint32_t*)(actThread->stack_base + actThread->memsize), (TThreadEntry)skeleton, actThread->tid, thread);
         //currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), &skeleton, currThread->tid, thread); // initializes stack/ activates thread
         actThread->state = RVCOS_THREAD_STATE_READY;
-        RVCWriteText("Activate: ", 10);
-        char buffer[1];
-        const char *Ptr = itoa(actThread -> tid, buffer, 10);
-        RVCWriteText(Ptr, 1);
-        RVCWriteText("\n", 1);
+        //RVCWriteText("Activate: ", 10);
+        //char buffer[1];
+        //const char *Ptr = itoa(actThread -> tid, buffer, 10);
+        //RVCWriteText(Ptr, 1);
+        //RVCWriteText("\n", 1);
+        //RVCWriteText("goes here\n",11);
         enqueueThread(actThread);
         struct TCB* currentThread = threadArray[get_tp()];
         if(actThread->priority > currentThread->priority){
-            currentThread->state = RVCOS_THREAD_STATE_READY;
-            char buff[1];
-            const char *point = itoa(currentThread -> tid, buff, 10);
-            RVCWriteText(point, 1);
-            RVCWriteText("\n", 1);
             enqueueThread(currentThread);
             schedule();
         }
@@ -409,17 +405,17 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
 }
 
 void enqueueThread(struct TCB* thread){
-    if(thread->priority == RVCOS_THREAD_PRIORITY_HIGH){
-        RVCWriteText("insert high\n", 12);
-        insert(thread->tid, RVCOS_THREAD_PRIORITY_HIGH);
+    if(thread->priority == RVCOS_THREAD_PRIORITY_LOW){
+        RVCWriteText("insert low\n", 11);
+        insert(thread->tid, RVCOS_THREAD_PRIORITY_LOW);
     }
-    else if(thread->priority = RVCOS_THREAD_PRIORITY_NORMAL){
+    else if(thread->priority == RVCOS_THREAD_PRIORITY_NORMAL){
         RVCWriteText("insert norm\n", 12);
         insert(thread->tid, RVCOS_THREAD_PRIORITY_NORMAL);
     }
-    else if(thread->priority = RVCOS_THREAD_PRIORITY_LOW) {
-        RVCWriteText("insert low\n", 11);
-        insert(thread->tid, RVCOS_THREAD_PRIORITY_LOW);
+    else if(thread->priority == RVCOS_THREAD_PRIORITY_HIGH) {
+        RVCWriteText("insert high\n", 12);
+        insert(thread->tid, RVCOS_THREAD_PRIORITY_HIGH);
     }
 }
 
@@ -433,43 +429,33 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     }
     currThread->state = RVCOS_THREAD_STATE_DEAD;
     *currThread->ret_val = returnval;
-    // if there are waiters
-    // if (waiters) {
-    //     tcb[waiter].returnval = rv;
-    //     tcb[waiter].state = RVCOS_THREAD_STATE_READY;
-    // }
-    // RVCWriteText("Terminate: ", 11);
-    // char buffer[1];
-    // const char *Ptr = itoa(currThread -> tid, buffer, 10);
-    // RVCWriteText(Ptr, 1);
     if(waitSize != 0){
         int flag = 0;
         for(int i = 0; i < waitSize; i++){
-            struct TCB* waiter = removeWaiter();
+            int waiterTID = removeWaiter();
+            struct TCB* waiter = threadArray[waiterTID];
             if (waiter->wait_id == thread){
                 RVCWriteText("gets here1\n",11);
                 *waiter->ret_val = returnval;
                 waiter->state = RVCOS_THREAD_STATE_READY;
-                RVCWriteText("Enqueue: ", 9);
-                char buffer[1];
-                const char *Ptr = itoa(currThread -> tid, buffer, 10);
-                RVCWriteText(Ptr, 1);
-                RVCWriteText("\n", 1);
                 enqueueThread(waiter);
                 if(waiter->priority > currThread->priority){
                     flag = 1;
                 }
             }
             else{
+                RVCWriteText("reinsert waiter", 15);
                 insertWaiter(waiter->tid);
             }
         }
         if(flag == 1){
+            RVCWriteText("never", 5);
             schedule();
         }
     }
     //If the thread terminating is the current running thread, then you will definitely need to schedule.
     if(threadArray[get_tp()] == currThread){
+        RVCWriteText("high terminates", 15);
         schedule();
     }
     return RVCOS_STATUS_SUCCESS;
@@ -489,10 +475,11 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
         currThread->state = RVCOS_THREAD_STATE_WAITING;
         //->waiter = thread;
         currThread->wait_id = thread;
+        returnref = waitThread->ret_val;
         //enqueue(waiters,currThread);
         insertWaiter(currThread->tid);
         schedule();
-        returnref = waitThread->ret_val;
+        
         return RVCOS_STATUS_SUCCESS;
     // else {
     //     //waitThread->ret_val = returnref;
@@ -523,6 +510,11 @@ TStatus RVCThreadState(TThreadID thread, TThreadStateRef state){
 
 void schedule(){
     struct TCB* current = threadArray[get_tp()];
+    //RVCWriteText("current: ", 10);
+    //char buffer[1];
+    //const char *Ptr = itoa(threadArray[get_tp()] -> tid, buffer, 10);
+    //RVCWriteText(Ptr, 1);
+    //RVCWriteText("\n", 1);
     int nextTid = 0;
     struct TCB* nextT;
     //RVCWriteText("Test Start\n", 11);
@@ -541,16 +533,22 @@ void schedule(){
     }
     //nextTid = 2;
     nextT = threadArray[nextTid];
+    //RVCWriteText("next: ", 6);
+    //char buffer1[1];
+    //const char *Ptr1 = itoa(nextT -> tid, buffer1, 10);
+   // RVCWriteText(Ptr1, 1);
+    //RVCWriteText("\n", 1);
     nextT->state = RVCOS_THREAD_STATE_RUNNING;
-    if(current->tid != nextT->tid){
+    if(threadArray[get_tp()]->tid != nextT->tid){
         if(current->state != RVCOS_THREAD_STATE_DEAD && current->state != RVCOS_THREAD_STATE_WAITING && nextT->state != RVCOS_THREAD_STATE_DEAD){
-            // current->state = RVCOS_THREAD_STATE_READY;
-            // RVCWriteText("Enqueue thread\n", 15);
-            // enqueueThread(current);
+            current->state = RVCOS_THREAD_STATE_READY;
+            RVCWriteText("Enqueue thread\n", 15);
+            enqueueThread(current);
         }
         //RVCWriteText("Step 1\n", 7); // currently goes into context switch but returns to the wrong
         //ContextSwitch(&current->sp, nextT->sp);
-        ContextSwitch((void *)&current->sp, nextT->sp);
+        RVCWriteText("context switch\n", 15);
+        ContextSwitch((void *)&threadArray[get_tp()]->sp, threadArray[nextTid]->sp);
     }
 }
 
