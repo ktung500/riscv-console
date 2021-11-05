@@ -440,7 +440,7 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     return RVCOS_STATUS_SUCCESS;
 }
 
-TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
+TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeout) {
     if (threadArray[thread] == NULL){
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
@@ -449,16 +449,53 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref) {
     }
     struct TCB* currThread = threadArray[get_tp()];
     struct TCB* waitThread = threadArray[thread];
-    if (waitThread->state != RVCOS_THREAD_STATE_DEAD) {
-        currThread->state = RVCOS_THREAD_STATE_WAITING;
-        currThread->wait_id = thread;
-        insertWaiter(currThread->tid);
-        schedule();
-        *returnref = (TThreadReturn)currThread->ret_val;
+    
+    if (timeout == RVCOS_TIMEOUT_IMMEDIATE){
+        //he current returns immediately regardless if the thread has terminated
+        if(waitThread->state != RVCOS_THREAD_STATE_DEAD){
+            return RVCOS_STATUS_FAILURE;
+        }
+        else{
+            *returnref = (TThreadReturn)currThread->ret_val;
+            return RVCOS_STATUS_SUCCESS;
+        }
+    }
+    else if (timeout == RVCOS_TIMEOUT_INFINITE){
+        if (waitThread->state != RVCOS_THREAD_STATE_DEAD) {
+            currThread->state = RVCOS_THREAD_STATE_WAITING;
+            currThread->wait_id = thread;
+            insertWaiter(currThread->tid);
+            schedule();
+            *returnref = (TThreadReturn)currThread->ret_val;
+            return RVCOS_STATUS_SUCCESS;
+        }
+        *returnref = (TThreadReturn)waitThread->ret_val;
         return RVCOS_STATUS_SUCCESS;
     }
-    *returnref = (TThreadReturn)waitThread->ret_val;
-    return RVCOS_STATUS_SUCCESS;
+    else{
+        currThread->ticks = timeout;
+        currThread->state = RVCOS_THREAD_STATE_WAITING;
+        sleepers[sleeperCursor] = currThread;
+        sleeperCursor++;
+        numSleepers++;
+        schedule();
+        // schedules next thread after putting current thread to sleep
+        // checks the timeout of the current thread that was put to sleep
+        // if the timeout expired and the thread it was waiting on is not dead yet, return failure
+        if(currThread->ticks == 0 && waitThread->state != RVCOS_THREAD_STATE_DEAD){
+            return RVCOS_STATUS_FAILURE;
+        }
+        if (waitThread->state != RVCOS_THREAD_STATE_DEAD) {
+            currThread->state = RVCOS_THREAD_STATE_WAITING;
+            currThread->wait_id = thread;
+            insertWaiter(currThread->tid);
+            schedule();
+            *returnref = (TThreadReturn)currThread->ret_val;
+            return RVCOS_STATUS_SUCCESS;
+        }
+        *returnref = (TThreadReturn)waitThread->ret_val;
+        return RVCOS_STATUS_SUCCESS;
+    }
 }
 
 TStatus RVCThreadID(TThreadIDRef threadref){
@@ -570,7 +607,7 @@ uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint3
         case 0x02: return RVCThreadDelete((TThreadID)p1);
         case 0x03: return RVCThreadActivate((TThreadID)p1);
         case 0x04: return RVCThreadTerminate((TThreadID)p1, p2);
-        case 0x05: return RVCThreadWait((TThreadID)p1, (TThreadReturnRef)p2);
+        case 0x05: return RVCThreadWait((TThreadID)p1, (TThreadReturnRef)p2, (TTick)p3);
         case 0x06: return RVCThreadID((void *)p1);
         case 0x07: return RVCThreadState((TThreadID)p1, (uint32_t*)p2);
         case 0x08: return RVCThreadSleep((TThreadID)p1);
