@@ -115,9 +115,9 @@ void c_interrupt_handler(void){
     tick_count++;
     // need to make sure its a timer interrupt
     // save mepc
-    // struct TCB* curr = threadArray[get_tp()];
-    // curr->state = RVCOS_THREAD_STATE_READY;
-    // enqueueThread(curr);
+    //struct TCB* curr = threadArray[get_tp()];
+    //curr->state = RVCOS_THREAD_STATE_READY;
+    //enqueueThread(curr);
     global++;
     controller_status = CONTROLLER;
     for(int i = 0; i < sleeperCursor ; i++){
@@ -132,6 +132,7 @@ void c_interrupt_handler(void){
             // need to handle decrementing the numSleepers correctly
         }
     }
+    //schedule();
     
     
     /*if(numSleepers == 0){

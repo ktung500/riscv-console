@@ -68,6 +68,10 @@ hardware_interrupt:
     sw a3,8(sp)
     sw a4,4(sp)
     sw a5,0(sp)
+    .option push
+    .option norelax
+    la gp, __global_pointer$
+    .option pop
     call c_interrupt_handler
     lw ra,36(sp)
     lw t0,32(sp)

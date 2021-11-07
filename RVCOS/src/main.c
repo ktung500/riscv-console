@@ -7,7 +7,7 @@ volatile int cursor; // used for global cursor
 volatile int tick_count;
 volatile uint32_t controller_status = 0;
 volatile uint32_t *saved_sp;
-uint32_t app_global_p;
+uint32_t *app_global_p;
 #define MTIMECMP_LOW    (*((volatile uint32_t *)0x40000010))
 #define MTIMECMP_HIGH   (*((volatile uint32_t *)0x40000014))
 typedef void (*TFunctionPointer)(void);
@@ -214,7 +214,7 @@ void* skeleton(TThreadID thread_id){
     // call entry(param) but make sure to switch the gp right before the call
 
 
-    currThread->ret_val = call_th_ent(param, entry, &app_global_p);
+    currThread->ret_val = call_th_ent(param, entry, app_global_p);
     asm volatile ("csrci mstatus, 0x8");
     RVCThreadTerminate(thread_id, currThread->ret_val); //(TThreadReturn)
     // Disable intterupts before terminate
@@ -223,8 +223,8 @@ void* skeleton(TThreadID thread_id){
 }
 
 TStatus RVCInitialize(uint32_t *gp) {
-    struct TCB* mainThread; // = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of main thread
-    RVCMemoryPoolAllocate(0, sizeof(struct TCB), &mainThread);
+    struct TCB* mainThread; //  = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of main thread
+    RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
     mainThread->tid = 0;
     mainThread->state = RVCOS_THREAD_STATE_RUNNING;
     mainThread->priority = RVCOS_THREAD_PRIORITY_NORMAL;
@@ -243,8 +243,8 @@ TStatus RVCInitialize(uint32_t *gp) {
     //idleThread->stack_base = (uint8_t*)idleThreadStack;
     idleThread->stack_base = (uint8_t*)malloc(1024);
     idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 1024), (TThreadEntry)(idleThread->entry), (uint32_t)(idleThread->param), idleThread->tid);
-
-    app_global_p = *gp;
+    
+    app_global_p = gp;
     if (app_global_p == 0) {
     // Failure since it didn't change global variable
         return RVCOS_STATUS_FAILURE;
@@ -538,7 +538,9 @@ void schedule(){
             current->state = RVCOS_THREAD_STATE_READY;
             enqueueThread(current);
         }
+        
         ContextSwitch((void *)&current->sp, threadArray[nextTid]->sp);
+        
     }
 }
 
@@ -613,7 +615,7 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
     if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-    pointer = malloc(size);
+    *pointer = malloc(size);
     return RVCOS_STATUS_SUCCESS;
     // If the memory pool does not have sufficient memory to allocate the array of size bytes, 
     // RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES is returned. 
