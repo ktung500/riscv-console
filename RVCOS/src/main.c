@@ -223,7 +223,8 @@ void* skeleton(TThreadID thread_id){
 }
 
 TStatus RVCInitialize(uint32_t *gp) {
-    struct TCB* mainThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of main thread
+    struct TCB* mainThread; // = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of main thread
+    RVCMemoryPoolAllocate(0, sizeof(struct TCB), &mainThread);
     mainThread->tid = 0;
     mainThread->state = RVCOS_THREAD_STATE_RUNNING;
     mainThread->priority = RVCOS_THREAD_PRIORITY_NORMAL;
@@ -612,9 +613,14 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
     if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
+    pointer = malloc(size);
+    return RVCOS_STATUS_SUCCESS;
     // If the memory pool does not have sufficient memory to allocate the array of size bytes, 
     // RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES is returned. 
 }
+
+
+
 
 TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
     if (pointer == NULL) { // Or if memory is invalid memory pool
@@ -654,11 +660,11 @@ uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint3
         case 0x0A: return RVCTickCount((void *)p1);
         case 0x0B: return RVCWriteText((void *)p1, p2);
         case 0x0C: return RVCReadController((void *)p1);
-        case 0x0D: return RVCMemoryPoolCreate(p1, p2, p3);
-        case 0x0E: return RVCMemoryPoolDelete(p1);
-        case 0x0F: return RVCMemoryPoolQuery(p1, p2);
-        case 0x10: return RVCMemoryPoolAllocate(p1, p2, p3);
-        case 0x11: return RVCMemoryPoolDeallocate(p1, p2);
+        // case 0x0D: return RVCMemoryPoolCreate(p1, p2, p3);
+        // case 0x0E: return RVCMemoryPoolDelete(p1);
+        // case 0x0F: return RVCMemoryPoolQuery(p1, p2);
+        // //case 0x10: return RVCMemoryPoolAllocate(p1, p2, p3);
+        // case 0x11: return RVCMemoryPoolDeallocate(p1, p2);
 
     }
     return code + 1;
