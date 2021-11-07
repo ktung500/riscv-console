@@ -2,6 +2,12 @@
 #include <stdlib.h>
 #include "RVCOS.h"
 
+// QUESTIONS???
+// How to change threadarray to dynamic allocation? (It holds all the TCB's)
+// How to dynamically do queues? (Do I use realloc)
+// How to check if in writetext if it is VT-100 sequence? (Do I first check: '0x1B'?)
+// 
+
 volatile int global;
 volatile int cursor; // used for global cursor
 volatile int tick_count;
@@ -21,7 +27,6 @@ void ContextSwitch(volatile uint32_t **oldsp, volatile uint32_t *newsp);
 volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken from riscv-example, main code
 struct TCB* threadArray[256];
 struct TCB* waiter[256];
-volatile int numWatiers;
 struct TCB* sleepers[256];
 volatile int numSleepers;
 volatile int sleeperCursor;
@@ -223,6 +228,7 @@ void* skeleton(TThreadID thread_id){
 }
 
 TStatus RVCInitialize(uint32_t *gp) {
+    RVCMemoryPoolAllocate(0, 264 * sizeof(struct TCB), (void**)&threadArray);
     struct TCB* mainThread; //  = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
     mainThread->tid = 0;
@@ -233,7 +239,9 @@ TStatus RVCInitialize(uint32_t *gp) {
     set_tp(mainThread->tid);
 
 
-    struct TCB* idleThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of idle thread
+    // struct TCB* idleThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of idle thread
+    struct TCB* idleThread;
+    RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&idleThread);
     idleThread->tid = 1;
     idleThread->state = RVCOS_THREAD_STATE_READY;   // idle thread needs to be in ready state
     idleThread->priority = 0; // RVCOS_THREAD_PRIORITY_LOWEST
@@ -241,7 +249,8 @@ TStatus RVCInitialize(uint32_t *gp) {
     idleThread->entry = (TThreadEntry)idle;
     //uint32_t idleThreadStack[1024];
     //idleThread->stack_base = (uint8_t*)idleThreadStack;
-    idleThread->stack_base = (uint8_t*)malloc(1024);
+    //idleThread->stack_base = (uint8_t*)malloc(1024);
+    RVCMemoryPoolAllocate(0, 1024, (void**)&idleThread->stack_base);
     idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 1024), (TThreadEntry)(idleThread->entry), (uint32_t)(idleThread->param), idleThread->tid);
     
     app_global_p = gp;
@@ -265,6 +274,34 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
             for (int i = 0; i < (int)writesize; i++) {
                 char c = buffer[i];
                 VIDEO_MEMORY[cursor] = ' ';
+                // if (c == 0x1B) {
+                //     i++;
+                //     if (i < (int)writesize) {
+                //         break;
+                //     }
+                //     c = buffer[i];
+                //     if (c == '[') {
+                //         i++;
+                //         if (i < (int)writesize) {
+                //             break;
+                //         }
+                //         c = buffer[i];
+                //         if (c == 'A') {
+                //             cursor -= 0x40;
+                //         } else if (c == 'B') {
+                //             cursor += 0x40;
+                //         } else if (c == 'C') {
+                //             cursor += 0x1;
+                //         } else if (c == 'D') {
+                //             cursor -= 0x1;
+                //         } // else if (ln ; col H)
+                //             // move to ln line and col column
+                //         else if (c == 'H') {
+                //             cursor = 0;
+                //         } // else if c == 2 J
+                //             // erase screen, don't move cursor
+                //     }
+                // }
                 if (c == '\n') {
                     cursor += 0x40;
                     cursor = cursor & ~0x3F;
@@ -313,10 +350,12 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
                     continue;
                 }
             }
-            struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
+            struct TCB* newThread; // = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
+            RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&newThread);
             //uint32_t newThreadStack[memsize];
             //newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
-            newThread->stack_base = (uint8_t*)malloc(memsize);
+            //newThread->stack_base = (uint8_t*)malloc(memsize);
+            RVCMemoryPoolAllocate(0, memsize, (void**)&newThread->stack_base);
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
@@ -329,12 +368,14 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             num_of_threads++;
         }
         else{
-            struct TCB* newThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
+            struct TCB* newThread;// = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
+            RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&newThread);
             // newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
             //uint32_t newThreadStack[memsize];
             //newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
-            uint32_t *base = malloc(memsize);
-            newThread->stack_base = (uint8_t*)base;
+            // uint32_t *base = malloc(memsize);
+            // newThread->stack_base = (uint8_t*)base;
+            RVCMemoryPoolAllocate(0, memsize, (void**)&newThread->stack_base);
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
@@ -342,7 +383,6 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             *tid = global_tid_nums;
             newThread->state = RVCOS_THREAD_STATE_CREATED;
             newThread->priority = prio;
-            //newThread->pid = -1;
             threadArray[global_tid_nums] = newThread;
             num_of_threads++;
             global_tid_nums++;  // starts at 2, since global_tid_nums is initialized to 2
@@ -362,8 +402,8 @@ TStatus RVCThreadDelete(TThreadID thread){
     else{
         num_of_threads--;
         threadArray[thread] = NULL;
-        free(currThread->stack_base);
-        free(currThread);
+        RVCMemoryPoolDeallocate(0, currThread->stack_base);
+        RVCMemoryPoolDeallocate(0, currThread);
         return RVCOS_STATUS_SUCCESS;
     }
 }
@@ -615,7 +655,8 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
     if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-    *pointer = malloc(size);
+
+    *pointer = (struct TCB*)malloc(size);
     return RVCOS_STATUS_SUCCESS;
     // If the memory pool does not have sufficient memory to allocate the array of size bytes, 
     // RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES is returned. 
@@ -628,6 +669,8 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
     if (pointer == NULL) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
+    free(pointer);
+    return RVCOS_STATUS_SUCCESS;
     //  If pointer does not specify a memory location that was previously allocated from the memory pool, 
     // RVCOS_STATUS_ERROR_INVALID_PARAMETER is returned. 
 }
