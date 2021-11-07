@@ -235,7 +235,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     struct TCB* idleThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of idle thread
     idleThread->tid = 1;
     idleThread->state = RVCOS_THREAD_STATE_READY;   // idle thread needs to be in ready state
-    idleThread->priority = RVCOS_THREAD_PRIORITY_LOWEST;
+    idleThread->priority = 0; // RVCOS_THREAD_PRIORITY_LOWEST
     threadArray[1] = idleThread;
     idleThread->entry = (TThreadEntry)idle;
     //uint32_t idleThreadStack[1024];
@@ -585,6 +585,45 @@ TStatus RVCTickCount(TTickRef tickref) {
     }
 }
 
+TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef memoryref) {
+    if (base == NULL || size < 128) {
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    // Upon successful creation of the memory pool, RVCMemoryPoolCreate() will return 
+    // RVCOS_STATUS_SUCCESS.
+}
+
+TStatus RVCMemoryPoolDelete(TMemoryPoolID memory) {
+
+    if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM) { // Or if memory is invalid memory pool
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    // if any memory has been allocated from the pool and is not deallocated
+    //   return RVCOS_STATUS_ERROR_INVALID_STATE 
+}
+
+TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
+    if (bytesleft == NULL) { // Or if memory is invalid memory pool
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+}
+
+TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **pointer) {
+    if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    // If the memory pool does not have sufficient memory to allocate the array of size bytes, 
+    // RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES is returned. 
+}
+
+TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
+    if (pointer == NULL) { // Or if memory is invalid memory pool
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    //  If pointer does not specify a memory location that was previously allocated from the memory pool, 
+    // RVCOS_STATUS_ERROR_INVALID_PARAMETER is returned. 
+}
+
 int main() {
     saved_sp = &CART_STAT_REG; // was used to see how the compiler would assign the save_sp so we could
     while(1){                      // do it in assembly in the enter_cartridge function
@@ -615,6 +654,12 @@ uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint3
         case 0x0A: return RVCTickCount((void *)p1);
         case 0x0B: return RVCWriteText((void *)p1, p2);
         case 0x0C: return RVCReadController((void *)p1);
+        case 0x0D: return RVCMemoryPoolCreate(p1, p2, p3);
+        case 0x0E: return RVCMemoryPoolDelete(p1);
+        case 0x0F: return RVCMemoryPoolQuery(p1, p2);
+        case 0x10: return RVCMemoryPoolAllocate(p1, p2, p3);
+        case 0x11: return RVCMemoryPoolDeallocate(p1, p2);
+
     }
     return code + 1;
 }
