@@ -231,7 +231,7 @@ void* skeleton(TThreadID thread_id){
 }
 
 TStatus RVCInitialize(uint32_t *gp) {
-    RVCMemoryPoolAllocate(0, 264 * sizeof(struct TCB), (void**)&threadArray);
+    RVCMemoryPoolAllocate(0, 264 * sizeof(void *), (void**)&threadArray);
     struct TCB* mainThread; //  = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
     mainThread->tid = 0;
@@ -347,7 +347,16 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
         if(num_of_threads > threadArraySize){  // number of threads exceeeds current size of array
             // double size
             threadArraySize *= 2;
-            threadArray = realloc(threadArray, threadArraySize * sizeof(struct TCB));
+            int newSize = threadArraySize;
+            //threadArray = realloc(threadArray, threadArraySize * sizeof(struct TCB));
+            struct TCB **temp;
+            RVCMemoryPoolAllocate(0, threadArraySize * sizeof(void *), (void**)temp);
+            for (int i=0; i < threadArraySize; i++) {
+                temp[i] = threadArray[i];
+            }
+            RVCMemoryDeallocate(threadArray);
+            threadArray = temp;
+            threadArraySize = newSize;
             // need to implement a realloc function using memory pools
             return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
         }
@@ -360,7 +369,7 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
                 }
             }
             struct TCB* newThread; // = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
-            RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&newThread);
+            RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)newThread);
             //uint32_t newThreadStack[memsize];
             //newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
             //newThread->stack_base = (uint8_t*)malloc(memsize);
