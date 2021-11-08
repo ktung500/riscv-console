@@ -25,13 +25,12 @@ void ContextSwitch(volatile uint32_t **oldsp, volatile uint32_t *newsp);
 #define CART_STAT_REG (*(volatile uint32_t *)0x4000001C)
 #define CONTROLLER_STATUS_REG (*(volatile uint32_t*)0x40000018) // base address of the Multi-Button Controller Status Register
 volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken from riscv-example, main code
-struct TCB* threadArray[256];
 struct TCB* waiter[256];
 struct TCB* sleepers[256];
 volatile int numSleepers;
 volatile int sleeperCursor;
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
-volatile int num_of_threads = 0;
+
 int highPQ[256];
 int highFront = 0;
 int highRear = -1;
@@ -49,6 +48,10 @@ int waiters[256];
 int waitFront = 0;
 int waitRear = -1;
 int waitSize = 0;
+struct TCB** threadArray;
+volatile int num_of_threads = 0;
+int threadArraySize = 256; // If it fills up, double the size
+
 
 void insertWaiter(int tid){
     //RVCWriteText("ins waiter\n", 11);
@@ -236,6 +239,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     mainThread->priority = RVCOS_THREAD_PRIORITY_NORMAL;
     //mainThread->pid = -1; // main thread has no parent so set to -1
     threadArray[0] = mainThread;
+    num_of_threads += 1;
     set_tp(mainThread->tid);
 
 
@@ -246,6 +250,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     idleThread->state = RVCOS_THREAD_STATE_READY;   // idle thread needs to be in ready state
     idleThread->priority = 0; // RVCOS_THREAD_PRIORITY_LOWEST
     threadArray[1] = idleThread;
+    num_of_threads += 1;
     idleThread->entry = (TThreadEntry)idle;
     //uint32_t idleThreadStack[1024];
     //idleThread->stack_base = (uint8_t*)idleThreadStack;
@@ -273,42 +278,42 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
 
             for (int i = 0; i < (int)writesize; i++) {
                 char c = buffer[i];
-                VIDEO_MEMORY[cursor] = ' ';
-                // if (c == 0x1B) {
-                //     i++;
-                //     if (i < (int)writesize) {
-                //         break;
-                //     }
-                //     c = buffer[i];
-                //     if (c == '[') {
-                //         i++;
-                //         if (i < (int)writesize) {
-                //             break;
-                //         }
-                //         c = buffer[i];
-                //         if (c == 'A') {
-                //             cursor -= 0x40;
-                //         } else if (c == 'B') {
-                //             cursor += 0x40;
-                //         } else if (c == 'C') {
-                //             cursor += 0x1;
-                //         } else if (c == 'D') {
-                //             cursor -= 0x1;
-                //         } // else if (ln ; col H)
-                //             // move to ln line and col column
-                //         else if (c == 'H') {
-                //             cursor = 0;
-                //         } // else if c == 2 J
-                //             // erase screen, don't move cursor
-                //     }
-                // }
-                if (c == '\n') {
+                //VIDEO_MEMORY[cursor] = ' ';
+                if (c == '\x1B') {
+                    i++;
+                    if (i > (int)writesize) {
+                        break;
+                    }
+                    char d = buffer[i];
+                    if (d == '[') {
+                        i++;
+                        if (i > (int)writesize) {
+                            break;
+                        }
+                        char e = buffer[i];
+                        if (e == 'A') {
+                            cursor -= 0x40;
+                        } else if (e == 'B') {
+                            cursor += 0x40;
+                        } else if (e == 'C') {
+                            cursor += 1;
+                        } else if (e == 'D') {
+                            cursor -= 1;
+                        } // else if (ln ; col H)
+                            // move to ln line and col column
+                        else if (e == 'H') {
+                            cursor = 0;
+                        } // else if c == 2 J
+                            // erase screen, don't move cursor
+                    }
+                }
+                else if (c == '\n') {
                     cursor += 0x40;
                     cursor = cursor & ~0x3F;
                     VIDEO_MEMORY[cursor] = c;
                 } else if(c == '\b') {
                     cursor -= 1;
-                    VIDEO_MEMORY[cursor] = c;
+                    //VIDEO_MEMORY[cursor] = c;
                 } else {
                     VIDEO_MEMORY[cursor] = c;
                     cursor++;
@@ -339,7 +344,11 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
     }
     else{
         //void* newThreadStack[memsize];
-        if(num_of_threads > 254){  // number of threads exceeeds what is possible
+        if(num_of_threads > threadArraySize){  // number of threads exceeeds current size of array
+            // double size
+            threadArraySize *= 2;
+            threadArray = realloc(threadArray, threadArraySize * sizeof(struct TCB));
+            // need to implement a realloc function using memory pools
             return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
         }
         else if(global_tid_nums == 256) { // need to parse through the threadArray and get the num of the first empty space
