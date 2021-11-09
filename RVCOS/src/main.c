@@ -89,6 +89,7 @@ struct PrioQ {
 struct PrioQ *scheduleQ;
 struct ReadyQ *waiterQ;
 struct ReadyQ *sleeperQ;
+struct ReadyQ *writerQ;
 
 struct PrioQ* createQueue(int maxSize)
 {
@@ -215,6 +216,8 @@ struct TCB{
     TThreadID wait_id;
     TThreadReturn ret_val;
     uint8_t *stack_base; // return value of malloc
+    const TTextCharacter *buffer;
+    TMemorySize writesize;
 };
 
 void enqueueThread(struct TCB* thread);
@@ -292,7 +295,8 @@ TStatus RVCInitialize(uint32_t *gp) {
     RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&threadArray);
     scheduleQ = createQueue(256); // grow if we hit limit
     waiterQ = createReadyQ(256);
-    sleeperQ =createReadyQ(256);
+    sleeperQ = createReadyQ(256);
+    writerQ = createReadyQ(256);
     struct TCB* mainThread;  // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
     mainThread->tid = 0;
@@ -327,6 +331,20 @@ TStatus RVCInitialize(uint32_t *gp) {
 }
 
 TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
+    if (buffer == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    else{
+        struct TCB* currentThread = threadArray[get_tp()];
+        currentThread->buffer = buffer;
+        currentThread->writesize = writesize;
+        insertRQ(writerQ, currentThread->tid);
+        return RVCOS_STATUS_SUCCESS;
+    }
+}
+
+
+TStatus WriteText(const TTextCharacter *buffer, TMemorySize writesize){
     if (buffer == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }

@@ -43,6 +43,8 @@ __attribute__((always_inline)) inline void set_gp(uint32_t addr) {
 #define MTIMECMP_LOW    (*((volatile uint32_t *)0x40000010))
 #define MTIMECMP_HIGH   (*((volatile uint32_t *)0x40000014))
 #define CONTROLLER      (*((volatile uint32_t *)0x40000018))
+#define INTR_PEND_REG      (*((volatile uint32_t *)0x40000004))
+#define INTR_ENAB_REG      (*((volatile uint32_t *)0x40000000))
 
 char *_sbrk(int incr) {
   extern char _heapbase;		/* Defined by the linker */
@@ -93,6 +95,8 @@ struct TCB{
     TThreadID wait_id;
     TStatus ret_val;
     uint8_t* stack_base; // return value of malloc
+    const TTextCharacter *buffer;
+    TMemorySize writesize;
 };
 
 extern volatile int global;
@@ -109,6 +113,8 @@ extern struct TCB** threadArray;
 extern struct ReadyQ *sleeperQ;
 extern int removeRQ(struct ReadyQ *Q);
 extern void insertRQ(struct ReadyQ *Q, int tid);
+extern struct ReadyQ *writerQ;
+extern TStatus WriteText(const TTextCharacter *buffer, TMemorySize writesize);
 
 
 struct ReadyQ{
@@ -127,6 +133,19 @@ void c_interrupt_handler(void){
     MTIMECMP_HIGH = NewCompare>>32;
     MTIMECMP_LOW = NewCompare;
     tick_count++;
+
+    if(INTR_PEND_REG & 0x2){
+        // video interrupt
+        //RVCWriteText("video interrupt\n",15);
+	    for(int i = 0; 0 < writerQ->size; i++){
+            int threadTID = removeRQ(writerQ);
+            struct TCB* thread = threadArray[threadTID];
+		    WriteText(thread->buffer, thread->writesize);
+	    }
+        INTR_PEND_REG = 0x2;
+    }
+
+
     // need to make sure its a timer interrupt
     // save mepc
     //struct TCB* curr = threadArray[get_tp()];
