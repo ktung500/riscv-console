@@ -763,6 +763,31 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
     // RVCOS_STATUS_ERROR_INVALID_PARAMETER is returned. 
 }
 
+TStatus RVCMutexCreate(TMutexIDRef mutexref) {
+    if (mutexref == NULL) {
+         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+}
+
+TStatus RVCMutexDelete(TMutexID mutex) {
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCMutexQuery(TMutexID mutex, TThreadIDRef ownerref) {
+    if (ownerref == NULL) {
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER; 
+    }
+}
+
+TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCMutexRelease(TMutexID mutex) {
+    return RVCOS_STATUS_SUCCESS;
+}
+
+
 int main() {
     saved_sp = &CART_STAT_REG; // was used to see how the compiler would assign the save_sp so we could
     while(1){                      // do it in assembly in the enter_cartridge function
