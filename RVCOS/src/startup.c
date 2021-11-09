@@ -79,18 +79,6 @@ void init(void){
     MTIMECMP_HIGH = 0;
 }
 
-extern volatile int global;
-extern volatile int tick_count;
-extern volatile uint32_t controller_status;
-extern struct TCB* sleepers[256];
-extern volatile int numSleepers;
-extern void schedule();
-extern void enqueueThread(struct TCB* thread);
-extern volatile int sleeperCursor;
-extern TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize);
-extern TThreadID get_tp(void);
-extern struct TCB* threadArray[256];
-
 struct TCB{
     TThreadID tid;
     uint32_t *gp;
@@ -107,6 +95,32 @@ struct TCB{
     uint8_t* stack_base; // return value of malloc
 };
 
+extern volatile int global;
+extern volatile int tick_count;
+extern volatile uint32_t controller_status;
+//extern struct TCB* sleepers[256];
+extern volatile int numSleepers;
+extern void schedule(); 
+extern void enqueueThread(struct TCB* thread);
+extern volatile int sleeperCursor;
+extern TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize);
+extern TThreadID get_tp(void);
+extern struct TCB** threadArray;
+extern struct ReadyQ *sleeperQ;
+extern int removeRQ(struct ReadyQ *Q);
+extern void insertRQ(struct ReadyQ *Q, int tid);
+
+
+struct ReadyQ{
+    int* queue;
+    int front;
+    int rear;
+    int size;
+};
+
+
+
+
 void c_interrupt_handler(void){
     uint64_t NewCompare = (((uint64_t)MTIMECMP_HIGH)<<32) | MTIMECMP_LOW;
     NewCompare += 2;
@@ -120,16 +134,20 @@ void c_interrupt_handler(void){
     //enqueueThread(curr);
     global++;
     controller_status = CONTROLLER;
-    for(int i = 0; i < sleeperCursor ; i++){
-        struct TCB* thread = sleepers[i];
-        thread->ticks = thread->ticks - 1;
+    for(int i = 0; i < sleeperQ->size; i++){
+        int threadId = removeRQ(sleeperQ);
+        struct TCB* thread = threadArray[threadId];
+        thread->ticks = thread->ticks - 1;      
         if(thread->ticks == 0){  // thread wakes up
-            sleepers[i] == NULL;
+            //sleepers[i] == NULL;
             thread->state = RVCOS_THREAD_STATE_READY;
-            numSleepers--;
+            //numSleepers--;
             enqueueThread(thread);
             schedule(); 
             // need to handle decrementing the numSleepers correctly
+        }
+        else{
+            insertRQ(sleeperQ, threadId);
         }
     }
     //schedule();

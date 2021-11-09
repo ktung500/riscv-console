@@ -25,8 +25,8 @@ void ContextSwitch(volatile uint32_t **oldsp, volatile uint32_t *newsp);
 #define CART_STAT_REG (*(volatile uint32_t *)0x4000001C)
 #define CONTROLLER_STATUS_REG (*(volatile uint32_t*)0x40000018) // base address of the Multi-Button Controller Status Register
 volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken from riscv-example, main code
-struct TCB* waiter[256];
-struct TCB* sleepers[256];
+//struct TCB* waiter[256];
+//struct TCB* sleepers[256];
 volatile int numSleepers;
 volatile int sleeperCursor;
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
@@ -45,13 +45,31 @@ volatile TThreadID global_tid_nums = 2;  // should only be 2-256
 // int lowRear = -1;
 // int lowSize = 0;
 // // for waiter queue
-int waiters[256];
-int waitFront = 0;
-int waitRear = -1;
-int waitSize = 0;
+// int waiters[256];
+// int waitFront = 0;
+// int waitRear = -1;
+// int waitSize = 0;
 struct TCB** threadArray;
 volatile int num_of_threads = 0;
 int threadArraySize = 256; // If it fills up, double the size
+
+struct ReadyQ{
+    int* queue;
+    int front;
+    int rear;
+    int size;
+};
+
+struct ReadyQ* createReadyQ(int size){
+    struct ReadyQ *Q;
+    RVCMemoryPoolAllocate(0, sizeof(struct ReadyQ), (void**)&Q);
+    Q->front = 0;
+    Q->rear = -1;
+    Q->size = 0;
+    RVCMemoryPoolAllocate(0, sizeof(int)*size, (void**)&Q->queue);
+    return Q;
+}
+
 
 struct PrioQ {
     int* highPQ;
@@ -69,6 +87,8 @@ struct PrioQ {
 }PrioQ;
 
 struct PrioQ *scheduleQ;
+struct ReadyQ *waiterQ;
+struct ReadyQ *sleeperQ;
 
 struct PrioQ* createQueue(int maxSize)
 {
@@ -91,28 +111,28 @@ struct PrioQ* createQueue(int maxSize)
         return Q;
 }
 
-void insertWaiter(int tid){
+void insertRQ(struct ReadyQ *Q, int tid){
     //RVCWriteText("ins waiter\n", 11);
-     if(waitSize != 256) {
-            if(waitRear == 255) {
-                waitRear = -1;
+     if(Q->size != 256) {
+            if(Q->rear == 255) {
+                Q->rear = -1;
             }
 
-            waiters[++waitRear] = tid;
-            waitSize++;
+            Q->queue[++Q->rear] = tid;
+            Q->size++;
         }
 }
 
-int removeWaiter(){
+int removeRQ(struct ReadyQ *Q){
     //RVCWriteText("rem waiter\n", 11);
     int data = -1;
-    if (waitSize > 0) {
-            data = waiters[waitFront++];
+    if (Q->size > 0) {
+            data = Q->queue[Q->front++];
         }
-        if(waitFront == 256) {
-            waitFront = 0;
+        if(Q->front == 256) {
+            Q->front = 0;
         }
-        waitSize--;
+        Q->size--;
     return data;
 }
 
@@ -271,6 +291,8 @@ void* skeleton(TThreadID thread_id){
 TStatus RVCInitialize(uint32_t *gp) {
     RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&threadArray);
     scheduleQ = createQueue(256); // grow if we hit limit
+    waiterQ = createReadyQ(256);
+    sleeperQ =createReadyQ(256);
     struct TCB* mainThread;  // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
     mainThread->tid = 0;
@@ -515,11 +537,13 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     }
     currThread->state = RVCOS_THREAD_STATE_DEAD;
     currThread->ret_val = returnval;
-    if(waitSize != 0){
+    // if there are waiters
+    if(waiterQ->size != 0){
         int flag = 0;
-        for(int i = 0; i < waitSize; i++){
-            int waiterTID = removeWaiter();
+        for(int i = 0; i < waiterQ->size; i++){
+            int waiterTID = removeRQ(waiterQ);
             struct TCB* waiter = threadArray[waiterTID];
+            // if the thread terminating is the thread that a waiter is waiting on
             if (waiter->wait_id == thread){
                 waiter->ret_val = returnval;
                 waiter->state = RVCOS_THREAD_STATE_READY;
@@ -529,7 +553,7 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
                 }
             }
             else{
-                insertWaiter(waiter->tid);
+                insertRQ(waiterQ,waiterTID);
             }
         }
         if(flag == 1){
@@ -554,7 +578,7 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
     struct TCB* waitThread = threadArray[thread];
     
     if (timeout == RVCOS_TIMEOUT_IMMEDIATE){
-        //he current returns immediately regardless if the thread has terminated
+        //the current returns immediately regardless if the thread has terminated
         if(waitThread->state != RVCOS_THREAD_STATE_DEAD){
             return RVCOS_STATUS_FAILURE;
         }
@@ -567,7 +591,7 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
         if (waitThread->state != RVCOS_THREAD_STATE_DEAD) {
             currThread->state = RVCOS_THREAD_STATE_WAITING;
             currThread->wait_id = thread;
-            insertWaiter(currThread->tid);
+            insertRQ(waiterQ,currThread->tid);
             schedule();
             *returnref = (TThreadReturn)currThread->ret_val;
             return RVCOS_STATUS_SUCCESS;
@@ -578,8 +602,9 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
     else{
         currThread->ticks = timeout;
         currThread->state = RVCOS_THREAD_STATE_WAITING;
-        sleepers[sleeperCursor] = currThread;
-        sleeperCursor++;
+        insertRQ(sleeperQ, currThread->tid);
+        //sleepers[sleeperCursor] = currThread;
+        //sleeperCursor++;
         numSleepers++;
         schedule();
         // schedules next thread after putting current thread to sleep
@@ -591,7 +616,7 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
         if (waitThread->state != RVCOS_THREAD_STATE_DEAD) {
             currThread->state = RVCOS_THREAD_STATE_WAITING;
             currThread->wait_id = thread;
-            insertWaiter(currThread->tid);
+            insertRQ(waiterQ,currThread->tid);
             schedule();
             *returnref = (TThreadReturn)currThread->ret_val;
             return RVCOS_STATUS_SUCCESS;
@@ -664,8 +689,9 @@ TStatus RVCThreadSleep(TTick tick) {
         struct TCB* current = threadArray[get_tp()];
         current->ticks = tick;
         current->state = RVCOS_THREAD_STATE_WAITING;
-        sleepers[sleeperCursor] = current;
-        sleeperCursor++;
+        insertRQ(sleeperQ, current->tid);
+        //sleepers[sleeperCursor] = current;
+        //sleeperCursor++;
         numSleepers++;
         schedule();
         return RVCOS_STATUS_SUCCESS;
