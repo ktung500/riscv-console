@@ -34,10 +34,12 @@ int main() {
             }
         }
         else if(ControllerStatus.DButton2){
-            if('~' > ArrayMove[5]){
-                ArrayMove[5]++;
-                RVCWriteText(ArrayMove+5,2);
-            }
+            // if('~' > ArrayMove[5]){
+            //     ArrayMove[5]++;
+            //     RVCWriteText(ArrayMove+5,2);
+            // }
+            RVCWriteText("\x1B[1;1H",6);
+            RVCWriteText("#",1);
         }
         else if(ControllerStatus.DButton3){
             RVCWriteText("\x1B[2J",4);

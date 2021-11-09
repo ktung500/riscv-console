@@ -342,39 +342,66 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
                     if (i > (int)writesize) {
                         break;
                     }
-                    char d = buffer[i];
-                    if (d == '[') {
+                    char c = buffer[i];
+                    if (c == '[') {
                         i++;
                         if (i > (int)writesize) {
                             break;
                         }
-                        char e = buffer[i];
-                        if (e == 'A') {
+                        char c = buffer[i];
+                        if (c == 'A') {
                             cursor -= 0x40;
-                        } else if (e == 'B') {
+                        } else if (c == 'B') {
                             cursor += 0x40;
-                        } else if (e == 'C') {
+                        } else if (c == 'C') {
                             if (cursor % 0x40 != 63) { // only move right if not at the right of screen
                                 cursor += 1;
                             }
-                        } else if (e == 'D') {
+                        } else if (c == 'D') {
                             if (cursor % 0x40 != 0) { // only move left if not at left of screen
                                 cursor -= 1;
                             }
-                        } // else if (ln ; col H)
-                            // move to ln line and col column
-                        else if (e == 'H') {
+                        } else if (c == 'H') {
                             cursor = 0;
-                        } else if (e == '2') {
+                        } else if (c == '2') {
                             i++;
                             if (i > (int)writesize) {
                                 break;
                             }
-                            char e = buffer[i];
-                            if (e == 'J') {
+                            char c = buffer[i];
+                            if (c == 'J') {
                                 // Erase screen (zero out video_memory)
                                 for (int j = 0; j < 2304; j++) {
                                     VIDEO_MEMORY[j] = 0;
+                                }
+                            }
+                        } else {
+                            int ln = (int)c - '0';
+                            i++;
+                            if (i > (int)writesize) {
+                                break;
+                            }
+                            c = buffer[i];
+                            if (c == ';') {
+                                i++;
+                                if (i > (int)writesize) {
+                                    break;
+                                }
+                                c = buffer[i];
+                                int col = (int)c - '0';
+                                i++;
+                                if (i > (int)writesize) {
+                                    break;
+                                }
+                                c = buffer[i];
+                                if (c == 'H') {
+                                    // cursor = 65;
+                                    // VIDEO_MEMORY[cursor] = ln;
+                                    // cursor ++;
+                                    // VIDEO_MEMORY[cursor] = col;
+                                    // cursor ++;
+                                    cursor = (64 * ln) + col;
+                                    // cursor = 65;
                                 }
                             }
                         }
