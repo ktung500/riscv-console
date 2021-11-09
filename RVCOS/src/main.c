@@ -31,19 +31,20 @@ volatile int numSleepers;
 volatile int sleeperCursor;
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
 
-int highPQ[256];
-int highFront = 0;
-int highRear = -1;
-int highSize = 0;
-int norPQ[256];
-int norFront = 0;
-int norRear = -1;
-int norSize = 0;
-int lowPQ[256];
-int lowFront = 0;
-int lowRear = -1;
-int lowSize = 0;
-// for waiter queue
+
+// int highPQ[256];
+// int highFront = 0;
+// int highRear = -1;
+// int highSize = 0;
+// int norPQ[256];
+// int norFront = 0;
+// int norRear = -1;
+// int norSize = 0;
+// int lowPQ[256];
+// int lowFront = 0;
+// int lowRear = -1;
+// int lowSize = 0;
+// // for waiter queue
 int waiters[256];
 int waitFront = 0;
 int waitRear = -1;
@@ -52,6 +53,43 @@ struct TCB** threadArray;
 volatile int num_of_threads = 0;
 int threadArraySize = 256; // If it fills up, double the size
 
+struct PrioQ {
+    int* highPQ;
+    int highFront;
+    int highRear;
+    int highSize;
+    int* norPQ;
+    int norFront;
+    int norRear;
+    int norSize;
+    int* lowPQ;
+    int lowFront;
+    int lowRear;
+    int lowSize;
+}PrioQ;
+
+struct PrioQ *scheduleQ;
+
+struct PrioQ* createQueue(int maxSize)
+{
+        /* Create a Queue */
+        struct PrioQ *Q;
+        RVCMemoryPoolAllocate(0, sizeof(struct PrioQ), (void**)&Q);
+        Q -> highFront = 0;
+        Q -> highRear = -1;
+        Q -> highSize = 0;
+        RVCMemoryPoolAllocate(0, sizeof(int), (void**)&Q->highPQ);
+        Q -> norFront = 0;
+        Q -> norRear = -1;
+        Q -> norSize = 0;
+        RVCMemoryPoolAllocate(0, sizeof(int), (void**)&Q->norPQ);
+        Q -> lowFront = 0;
+        Q -> lowRear = -1;
+        Q -> lowSize = 0;
+        RVCMemoryPoolAllocate(0, sizeof(int), (void**)&Q->lowPQ);
+        /* Return the pointer */
+        return Q;
+}
 
 void insertWaiter(int tid){
     //RVCWriteText("ins waiter\n", 11);
@@ -79,62 +117,62 @@ int removeWaiter(){
 }
 
 //void insert(int data, int* PQ, int front, int rear, int size ) {
-void insert(int data, TThreadPriority priority) {
+void insert(struct PrioQ *Q, int data, TThreadPriority priority) {
     if (priority == RVCOS_THREAD_PRIORITY_HIGH){
-        if(highSize != 256) {
-            if(highRear == 255) {
-                highRear = -1;
+        if(Q->highSize != 256) {
+            if(Q->highRear == 255) {
+                Q->highRear = -1;
             }
 
-            highPQ[++highRear] = data;
-            highSize++;
+            Q->highPQ[++(Q->highRear)] = data;
+            Q->highSize++;
             //RVCWriteText("Ins high\n", 9);
         }
     } else if (priority == RVCOS_THREAD_PRIORITY_NORMAL){
-        if(norSize != 256) {
-            if(norRear == 255) {
-                norRear = -1;
+        if(Q->norSize != 256) {
+            if(Q->norRear == 255) {
+                Q->norRear = -1;
             }
 
-            norPQ[++norRear] = data;
-            norSize++;
+            Q->norPQ[++(Q->norRear)] = data;
+            Q->norSize++;
             //RVCWriteText("Ins nor\n", 8);
         }
     } else if (priority == RVCOS_THREAD_PRIORITY_LOW){
-        if(lowSize != 256) {
-            if(lowRear == 255) {
-                lowRear = -1;
+        if(Q->lowSize != 256) {
+            if(Q->lowRear == 255) {
+                Q->lowRear = -1;
             }
 
-            lowPQ[++lowRear] = data;
-            lowSize++;
+            Q->lowPQ[++(Q->lowRear)] = data;
+            Q->lowSize++;
             //RVCWriteText("Ins low\n", 8);
         }
     }
 }
 
-int removeData(TThreadPriority prio) {
+int removeData(struct PrioQ *Q, TThreadPriority prio) {
     int data = -1;
     if (prio == RVCOS_THREAD_PRIORITY_HIGH) {
-        if (highSize > 0) {
-            data = highPQ[highFront++];
+        if (Q->highSize > 0) {
+            data = Q->highPQ[(Q->highFront)++];
         }
-        if(highFront == 256) {
-            highFront = 0;
+        if(Q->highFront == 256) {
+            Q->highFront = 0;
         }
-        highSize--;
+        Q->highSize--;
     } else if (prio == RVCOS_THREAD_PRIORITY_NORMAL) {
-        data = norPQ[norFront++];
-            if(norFront == 256) {
-                norFront = 0;
+        data = Q->norPQ[(Q->norFront)++];
+            if(Q->norFront == 256) {
+                Q->norFront = 0;
             }
-            norSize--;
+            Q->norSize--;
     } else if (prio == RVCOS_THREAD_PRIORITY_LOW) {
-        data = lowPQ[lowFront++];
-            if(lowFront == 256) {
-                lowFront = 0;
+        data = Q->lowPQ[(Q->lowFront)++];
+            if(Q->lowFront == 256) {
+                Q->lowFront = 0;
             }
-            lowSize--;
+            Q->lowSize--;
     } else {
         return 1;
     }
@@ -231,8 +269,9 @@ void* skeleton(TThreadID thread_id){
 }
 
 TStatus RVCInitialize(uint32_t *gp) {
-    RVCMemoryPoolAllocate(0, 264 * sizeof(void *), (void**)&threadArray);
-    struct TCB* mainThread; //  = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of main thread
+    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&threadArray);
+    scheduleQ = createQueue(256); // grow if we hit limit
+    struct TCB* mainThread;  // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
     mainThread->tid = 0;
     mainThread->state = RVCOS_THREAD_STATE_RUNNING;
@@ -243,7 +282,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     set_tp(mainThread->tid);
 
 
-    // struct TCB* idleThread = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of idle thread
+    
     struct TCB* idleThread;
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&idleThread);
     idleThread->tid = 1;
@@ -252,9 +291,6 @@ TStatus RVCInitialize(uint32_t *gp) {
     threadArray[1] = idleThread;
     num_of_threads += 1;
     idleThread->entry = (TThreadEntry)idle;
-    //uint32_t idleThreadStack[1024];
-    //idleThread->stack_base = (uint8_t*)idleThreadStack;
-    //idleThread->stack_base = (uint8_t*)malloc(1024);
     RVCMemoryPoolAllocate(0, 1024, (void**)&idleThread->stack_base);
     idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 1024), (TThreadEntry)(idleThread->entry), (uint32_t)(idleThread->param), idleThread->tid);
     
@@ -384,11 +420,8 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
                     continue;
                 }
             }
-            struct TCB* newThread; // = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
+            struct TCB* newThread; 
             RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)newThread);
-            //uint32_t newThreadStack[memsize];
-            //newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
-            //newThread->stack_base = (uint8_t*)malloc(memsize);
             RVCMemoryPoolAllocate(0, memsize, (void**)&newThread->stack_base);
             newThread->entry = entry;
             newThread->param = param;
@@ -402,13 +435,8 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             num_of_threads++;
         }
         else{
-            struct TCB* newThread;// = (struct TCB*)malloc(sizeof(struct TCB)); // initializing TCB of a thread
+            struct TCB* newThread; // initializing TCB of a thread
             RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&newThread);
-            // newThread->stack_base = malloc(memsize); // initialize stack of memsize for the newThread
-            //uint32_t newThreadStack[memsize];
-            //newThread->stack_base = (uint8_t*)newThreadStack; // initialize stack of memsize for the newThread
-            // uint32_t *base = malloc(memsize);
-            // newThread->stack_base = (uint8_t*)base;
             RVCMemoryPoolAllocate(0, memsize, (void**)&newThread->stack_base);
             newThread->entry = entry;
             newThread->param = param;
@@ -467,13 +495,13 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
 
 void enqueueThread(struct TCB* thread){
     if(thread->priority == RVCOS_THREAD_PRIORITY_LOW){
-        insert(thread->tid, RVCOS_THREAD_PRIORITY_LOW);
+        insert(scheduleQ, thread->tid, RVCOS_THREAD_PRIORITY_LOW);
     }
     else if(thread->priority == RVCOS_THREAD_PRIORITY_NORMAL){
-        insert(thread->tid, RVCOS_THREAD_PRIORITY_NORMAL);
+        insert(scheduleQ, thread->tid, RVCOS_THREAD_PRIORITY_NORMAL);
     }
     else if(thread->priority == RVCOS_THREAD_PRIORITY_HIGH) {
-        insert(thread->tid, RVCOS_THREAD_PRIORITY_HIGH);
+        insert(scheduleQ, thread->tid, RVCOS_THREAD_PRIORITY_HIGH);
     }
 }
 
@@ -596,12 +624,12 @@ void schedule(){
     struct TCB* current = threadArray[get_tp()];
     int nextTid = 0;
     struct TCB* nextT;
-    if (highSize != 0) {
-        nextTid = removeData(RVCOS_THREAD_PRIORITY_HIGH);
-    } else if (norSize != 0) {
-        nextTid = removeData(RVCOS_THREAD_PRIORITY_NORMAL);
-    } else if (lowSize != 0) {
-        nextTid = removeData(RVCOS_THREAD_PRIORITY_LOW);
+    if (scheduleQ->highSize != 0) {
+        nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_HIGH);
+    } else if (scheduleQ->norSize != 0) {
+        nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_NORMAL);
+    } else if (scheduleQ->lowSize != 0) {
+        nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_LOW);
     } else {
         nextTid = 1;
     }
@@ -626,7 +654,7 @@ TStatus RVCThreadSleep(TTick tick) {
         struct TCB* current = threadArray[get_tp()];
         TThreadPriority currPrio = current->priority;
         
-        int next = removeData(currPrio);
+        int next = removeData(scheduleQ, currPrio);
         if (next == 1) {
             enqueueThread(current);
         }
