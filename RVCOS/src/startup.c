@@ -134,7 +134,7 @@ void c_interrupt_handler(void){
     MTIMECMP_LOW = NewCompare;
     tick_count++;
 
-    if(INTR_PEND_REG & 0x2){
+    /*if(INTR_PEND_REG & 0x2){
         // video interrupt
         //RVCWriteText("video interrupt\n",15);
 	    for(int i = 0; 0 < writerQ->size; i++){
@@ -143,7 +143,7 @@ void c_interrupt_handler(void){
 		    WriteText(thread->buffer, thread->writesize);
 	    }
         INTR_PEND_REG = 0x2;
-    }
+    }*/
 
 
     // need to make sure its a timer interrupt

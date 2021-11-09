@@ -330,7 +330,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     }
 }
 
-TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
+/*TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
     if (buffer == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
@@ -341,10 +341,10 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
         insertRQ(writerQ, currentThread->tid);
         return RVCOS_STATUS_SUCCESS;
     }
-}
+}*/
 
 
-TStatus WriteText(const TTextCharacter *buffer, TMemorySize writesize){
+TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
     if (buffer == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
