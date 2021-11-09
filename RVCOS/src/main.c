@@ -296,14 +296,30 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
                         } else if (e == 'B') {
                             cursor += 0x40;
                         } else if (e == 'C') {
-                            cursor += 1;
+                            if (cursor % 0x40 != 63) { // only move right if not at the right of screen
+                                cursor += 1;
+                            }
                         } else if (e == 'D') {
-                            cursor -= 1;
+                            if (cursor % 0x40 != 0) { // only move left if not at left of screen
+                                cursor -= 1;
+                            }
                         } // else if (ln ; col H)
                             // move to ln line and col column
                         else if (e == 'H') {
                             cursor = 0;
-                        } // else if c == 2 J
+                        } else if (e == '2') {
+                            i++;
+                            if (i > (int)writesize) {
+                                break;
+                            }
+                            char e = buffer[i];
+                            if (e == 'J') {
+                                // Erase screen (zero out video_memory)
+                                for (int j = 0; j < 2304; j++) {
+                                    VIDEO_MEMORY[j] = 0;
+                                }
+                            }
+                        }
                             // erase screen, don't move cursor
                     }
                 }
