@@ -1,5 +1,5 @@
 .section .text, "ax"
-.global _interrupt_handler, enter_cartridge, call_th_ent, ContextSwitch, get_tp, set_tp
+.global _interrupt_handler, enter_cartridge, call_th_ent, ContextSwitch, get_tp, set_tp, hardware_interrupt
 .extern saved_sp
 
 _interrupt_handler:

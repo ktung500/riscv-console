@@ -98,15 +98,15 @@ struct PrioQ* createQueue(int maxSize)
         Q -> highFront = 0;
         Q -> highRear = -1;
         Q -> highSize = 0;
-        RVCMemoryPoolAllocate(0, sizeof(int), (void**)&Q->highPQ);
+        RVCMemoryPoolAllocate(0, sizeof(int)*maxSize, (void**)&Q->highPQ);
         Q -> norFront = 0;
         Q -> norRear = -1;
         Q -> norSize = 0;
-        RVCMemoryPoolAllocate(0, sizeof(int), (void**)&Q->norPQ);
+        RVCMemoryPoolAllocate(0, sizeof(int)*maxSize, (void**)&Q->norPQ);
         Q -> lowFront = 0;
         Q -> lowRear = -1;
         Q -> lowSize = 0;
-        RVCMemoryPoolAllocate(0, sizeof(int), (void**)&Q->lowPQ);
+        RVCMemoryPoolAllocate(0, sizeof(int)*maxSize, (void**)&Q->lowPQ);
         /* Return the pointer */
         return Q;
 }
