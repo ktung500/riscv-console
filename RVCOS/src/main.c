@@ -30,25 +30,13 @@ volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken
 volatile int numSleepers;
 volatile int sleeperCursor;
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
-
+volatile num_mutex = 0;
 
 // int highPQ[256];
 // int highFront = 0;
 // int highRear = -1;
 // int highSize = 0;
-// int norPQ[256];
-// int norFront = 0;
-// int norRear = -1;
-// int norSize = 0;
-// int lowPQ[256];
-// int lowFront = 0;
-// int lowRear = -1;
-// int lowSize = 0;
-// // for waiter queue
-// int waiters[256];
-// int waitFront = 0;
-// int waitRear = -1;
-// int waitSize = 0;
+
 struct TCB** threadArray;
 volatile int num_of_threads = 0;
 int threadArraySize = 256; // If it fills up, double the size
@@ -59,6 +47,14 @@ struct ReadyQ{
     int rear;
     int size;
 };
+
+struct Mutex** mutexArray;
+struct Mutex{
+    struct PrioQ pq;
+    TMutexID mxid;
+    int unlocked; // check if mutex can be acquired
+    TThreadID holder; // id of thread thats holding
+} Mutex;
 
 struct ReadyQ* createReadyQ(int size){
     struct ReadyQ *Q;
@@ -297,6 +293,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     waiterQ = createReadyQ(256);
     sleeperQ = createReadyQ(256);
     writerQ = createReadyQ(256);
+    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&mutexArray);
     struct TCB* mainThread;  // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
     mainThread->tid = 0;
@@ -812,6 +809,16 @@ TStatus RVCMutexCreate(TMutexIDRef mutexref) {
     if (mutexref == NULL) {
          return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
+    struct Mutex *mx;
+    RVCMemoryPoolAllocate(0, sizeof(struct Mutex), (void**)&mx);
+    struct PrioQ *mxQueue = createQueue(256);
+    mx -> pq = mxQueue;
+    mx -> mxid = num_mutex;
+    num_mutex ++;
+    mx -> unlocked = 1;
+    mx -> holder = NULL;
+    mutexArray[num_mutex] = mx;
+
 }
 
 TStatus RVCMutexDelete(TMutexID mutex) {
@@ -822,9 +829,33 @@ TStatus RVCMutexQuery(TMutexID mutex, TThreadIDRef ownerref) {
     if (ownerref == NULL) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER; 
     }
+    // If mutex is unlocked
+    if (mutexArray[mutex]->unlocked) {
+        return RVCOS_THREAD_ID_INVALID;
+    }
+    // If mutex doesn't exist
+    if (mutexArray[mutex] == NULL) {
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    *ownerref = mutexArray[mutex] -> holder;
 }
 
 TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
+    if (mutexArray[mutex] == NULL) {
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    struct Mutex *mx = mutexArray[mutex];
+
+    // If timeout specified as IMMEDIATE, current returns immediately if mutex is locked 
+    if (timeout == RVCOS_TIMEOUT_IMMEDIATE) {
+        if (mx->unlocked != 1) {
+            return RVCOS_STATUS_FAILURE;
+        }
+    }
+    // If timeout is specified as INFINITE, thread will block until mutex is acquired. 
+    if (timeout == RVCOS_TIMEOUT_INFINITE) {
+        // set currthread to waiting, add thread to pq, 
+    }
     return RVCOS_STATUS_SUCCESS;
 }
 
