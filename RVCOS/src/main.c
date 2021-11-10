@@ -30,7 +30,7 @@ volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken
 volatile int numSleepers;
 volatile int sleeperCursor;
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
-volatile num_mutex = 0;
+volatile int num_mutex = 0;
 
 // int highPQ[256];
 // int highFront = 0;
@@ -50,9 +50,9 @@ struct ReadyQ{
 
 struct Mutex** mutexArray;
 struct Mutex{
-    struct PrioQ pq;
+    struct PrioQ *pq;
     TMutexID mxid;
-    int unlocked; // check if mutex can be acquired
+    int unlocked; // check if mutex can be acquired, == 1 is unlocked, == 0 is locked
     TThreadID holder; // id of thread thats holding
 } Mutex;
 
@@ -527,9 +527,9 @@ TStatus RVCThreadDelete(TThreadID thread){
     }
     else{
         num_of_threads--;
-        threadArray[thread] = NULL;
         RVCMemoryPoolDeallocate(0, currThread->stack_base);
         RVCMemoryPoolDeallocate(0, currThread);
+        threadArray[thread] = NULL;
         return RVCOS_STATUS_SUCCESS;
     }
 }
@@ -822,7 +822,18 @@ TStatus RVCMutexCreate(TMutexIDRef mutexref) {
 }
 
 TStatus RVCMutexDelete(TMutexID mutex) {
-    return RVCOS_STATUS_SUCCESS;
+    if(mutexArray[mutex] == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    else if(mutexArray[mutex]->unlocked == 0){
+        return RVCOS_STATUS_ERROR_INVALID_STATE;
+    }
+    else{
+        RVCMemoryPoolDeallocate(0, mutexArray[mutex]);
+        mutexArray[mutex] = NULL;
+        num_mutex--;
+        return RVCOS_STATUS_SUCCESS;   
+    }
 }
 
 TStatus RVCMutexQuery(TMutexID mutex, TThreadIDRef ownerref) {
@@ -845,7 +856,7 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     struct Mutex *mx = mutexArray[mutex];
-
+    struct TCB *currThread = threadArray[get_tp()];
     // If timeout specified as IMMEDIATE, current returns immediately if mutex is locked 
     if (timeout == RVCOS_TIMEOUT_IMMEDIATE) {
         if (mx->unlocked != 1) {
@@ -853,14 +864,80 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
         }
     }
     // If timeout is specified as INFINITE, thread will block until mutex is acquired. 
-    if (timeout == RVCOS_TIMEOUT_INFINITE) {
-        // set currthread to waiting, add thread to pq, 
+    else if (timeout == RVCOS_TIMEOUT_INFINITE) {
+        // check if mutex is unlocked
+        if (mx->unlocked == 1){
+            // mutex is now held by the current running thread
+            mx->holder = currThread->tid;
+            // lock mutex
+            mx->unlocked = 0;
+        }else{
+            // mutex is locked and the thread will block until mutex is unlocked
+            currThread->state = RVCOS_THREAD_STATE_WAITING;
+            // set currthread to waiting, add thread to pq, 
+            insert(mx->pq, currThread->tid, currThread->priority);
+            // need to schedule the next thread cause this one is waiting for the mutex to be released
+            schedule();
+        }
+    }
+    // If  the  timeout  expires  prior  to  the  acquisition  of  the  mutex, RVCOS_STATUS_FAILURE  is  returned.  
+    else{
+        // how do we check if the timeout expires, need to ask in OH about this
+        if (mx->unlocked == 1){
+            // mutex is now held by the current running thread
+            mx->holder = currThread->tid;
+            // lock mutex
+            mx->unlocked = 0;
+        }else{
+            // mutex is locked and the thread will block until mutex is unlocked
+            currThread->state = RVCOS_THREAD_STATE_WAITING;
+            // set currthread to waiting, add thread to pq, 
+            insert(mx->pq, currThread->tid, currThread->priority);
+            // need to schedule the next thread cause this one is waiting for the mutex to be released
+            schedule();
+        }
+        return RVCOS_STATUS_FAILURE;
     }
     return RVCOS_STATUS_SUCCESS;
 }
 
+//RVCMutexRelease() releases the mutex specified by the mutex parameter that is currently held by 
+// the running thread. Release of the mutex may cause another higher priority thread to be scheduled 
+// if it acquires the newly released mutex.  
 TStatus RVCMutexRelease(TMutexID mutex) {
-    return RVCOS_STATUS_SUCCESS;
+     if (mutexArray[mutex] == NULL) {
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    else if(mutexArray[mutex]->holder != get_tp()){ 
+        //  If  the  mutex  specified  by  the  mutex identifier mutex does exist, but is not currently held by the running thread, 
+        // RVCOS_STATUS_ERROR_INVALID_STATE is returned. 
+        return RVCOS_STATUS_ERROR_INVALID_STATE;
+    }
+    else{
+        struct Mutex *mx = mutexArray[mutex];
+        mx->holder = NULL;
+        mx->unlocked = 1;
+        int nextTid = removeData(mx->pq, RVCOS_THREAD_PRIORITY_HIGH);
+        if(nextTid == -1){
+            nextTid = removeData(mx->pq, RVCOS_THREAD_PRIORITY_NORMAL);
+            if(nextTid == -1){
+               nextTid = removeData(mx->pq, RVCOS_THREAD_PRIORITY_LOW);
+            }
+        }
+        // nothing in any of the pqs
+        if(nextTid == -1){
+            return RVCOS_STATUS_SUCCESS;
+        }
+        else{
+            struct TCB *nextThread = threadArray[nextTid];
+            mx->holder = nextTid;
+            mx->unlocked = 0;
+            if (nextThread->priority > threadArray[get_tp()]->priority){
+                schedule();
+            }
+            return RVCOS_STATUS_SUCCESS;
+        }
+    }
 }
 
 
@@ -899,6 +976,11 @@ uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint3
         // case 0x0F: return RVCMemoryPoolQuery(p1, p2);
         // //case 0x10: return RVCMemoryPoolAllocate(p1, p2, p3);
         // case 0x11: return RVCMemoryPoolDeallocate(p1, p2);
+        case 0x12: return RVCMutexCreate((void *)p1);
+        case 0x13: return RVCMutexDelete((void *)p1);
+        case 0x14: return RVCMutexQuery((void *)p1, (void *)p2);
+        case 0x15: return RVCMutexAcquire((void *)p1, (void *)p2);
+        case 0x16: return RVCMutexRelease ((void *)p1);
 
     }
     return code + 1;
