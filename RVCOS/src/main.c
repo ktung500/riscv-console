@@ -169,27 +169,37 @@ void insert(struct PrioQ *Q, int data, TThreadPriority priority) {
 }
 
 int removeData(struct PrioQ *Q, TThreadPriority prio) {
-    int data = -1;
+    int data = 1;
     if (prio == RVCOS_THREAD_PRIORITY_HIGH) {
         if (Q->highSize > 0) {
             data = Q->highPQ[(Q->highFront)++];
+        } else {
+            return -1;
         }
         if(Q->highFront == 256) {
             Q->highFront = 0;
         }
         Q->highSize--;
     } else if (prio == RVCOS_THREAD_PRIORITY_NORMAL) {
-        data = Q->norPQ[(Q->norFront)++];
-            if(Q->norFront == 256) {
-                Q->norFront = 0;
-            }
-            Q->norSize--;
+        if (Q->norSize > 0) {
+            data = Q->norPQ[(Q->norFront)++];
+        } else {
+            return -1;
+        }
+        if(Q->norFront == 256) {
+            Q->norFront = 0;
+        }
+        Q->norSize--;
     } else if (prio == RVCOS_THREAD_PRIORITY_LOW) {
-        data = Q->lowPQ[(Q->lowFront)++];
-            if(Q->lowFront == 256) {
-                Q->lowFront = 0;
-            }
-            Q->lowSize--;
+        if (Q->lowSize > 0) {
+            data = Q->lowPQ[(Q->lowFront)++];
+        } else {
+            return -1;
+        }
+        if(Q->lowFront == 256) {
+            Q->lowFront = 0;
+        }
+        Q->lowSize--;
     } else {
         return 1;
     }
@@ -288,12 +298,18 @@ void* skeleton(TThreadID thread_id){
 }
 
 TStatus RVCInitialize(uint32_t *gp) {
-    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&threadArray);
+    RVCMemoryPoolAllocate(0, threadArraySize * sizeof(void *), (void**)&threadArray);
+    for (int i = 0; i < threadArraySize; i++) {
+        threadArray[i] = NULL;
+    }
     scheduleQ = createQueue(256); // grow if we hit limit
     waiterQ = createReadyQ(256);
     sleeperQ = createReadyQ(256);
     writerQ = createReadyQ(256);
     RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&mutexArray);
+    for (int i = 0; i < 256; i++) {
+        mutexArray[i] = NULL;
+    }
     struct TCB* mainThread;  // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
     mainThread->tid = 0;
@@ -467,6 +483,9 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             //threadArray = realloc(threadArray, threadArraySize * sizeof(struct TCB));
             struct TCB **temp;
             RVCMemoryPoolAllocate(0, threadArraySize * sizeof(void *), (void**)temp);
+            for (int i = 0; i < threadArraySize; i++) {
+                threadArray[i] = NULL;
+            }
             for (int i=0; i < threadArraySize; i++) {
                 temp[i] = threadArray[i];
             }
@@ -812,12 +831,14 @@ TStatus RVCMutexCreate(TMutexIDRef mutexref) {
     struct Mutex *mx;
     RVCMemoryPoolAllocate(0, sizeof(struct Mutex), (void**)&mx);
     struct PrioQ *mxQueue = createQueue(256);
+
     mx -> pq = mxQueue;
     mx -> mxid = num_mutex;
-    num_mutex ++;
     mx -> unlocked = 1;
     mx -> holder = NULL;
     mutexArray[num_mutex] = mx;
+    *mutexref = num_mutex;
+    num_mutex ++;
 
 }
 
@@ -845,14 +866,16 @@ TStatus RVCMutexQuery(TMutexID mutex, TThreadIDRef ownerref) {
         return RVCOS_THREAD_ID_INVALID;
     }
     // If mutex doesn't exist
-    if (mutexArray[mutex] == NULL) {
+    if (mutexArray[mutex]->mxid == NULL) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     *ownerref = mutexArray[mutex] -> holder;
 }
 
 TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
+    //RVCWriteText("Acquire\n", 8);
     if (mutexArray[mutex] == NULL) {
+        //RVCWriteText("Inf Null\n", 9);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     struct Mutex *mx = mutexArray[mutex];
@@ -865,6 +888,7 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
     }
     // If timeout is specified as INFINITE, thread will block until mutex is acquired. 
     else if (timeout == RVCOS_TIMEOUT_INFINITE) {
+        //RVCWriteText("Infinite\n", 9);
         // check if mutex is unlocked
         if (mx->unlocked == 1){
             // mutex is now held by the current running thread
@@ -872,6 +896,7 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
             // lock mutex
             mx->unlocked = 0;
         }else{
+            //RVCWriteText("Inf Blocking\n", 13);
             // mutex is locked and the thread will block until mutex is unlocked
             currThread->state = RVCOS_THREAD_STATE_WAITING;
             // set currthread to waiting, add thread to pq, 
@@ -905,15 +930,18 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
 // the running thread. Release of the mutex may cause another higher priority thread to be scheduled 
 // if it acquires the newly released mutex.  
 TStatus RVCMutexRelease(TMutexID mutex) {
-     if (mutexArray[mutex] == NULL) {
+    RVCWriteText("Release\n", 8);
+    if (mutexArray[mutex] == NULL) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(mutexArray[mutex]->holder != get_tp()){ 
         //  If  the  mutex  specified  by  the  mutex identifier mutex does exist, but is not currently held by the running thread, 
         // RVCOS_STATUS_ERROR_INVALID_STATE is returned. 
+        RVCWriteText("Not running thr\n", 16);
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
+        RVCWriteText("Else\n", 5);
         struct Mutex *mx = mutexArray[mutex];
         mx->holder = NULL;
         mx->unlocked = 1;
@@ -929,12 +957,16 @@ TStatus RVCMutexRelease(TMutexID mutex) {
             return RVCOS_STATUS_SUCCESS;
         }
         else{
+            RVCWriteText("Else 2\n", 7);
             struct TCB *nextThread = threadArray[nextTid];
+            enqueueThread(nextThread);
             mx->holder = nextTid;
             mx->unlocked = 0;
             if (nextThread->priority > threadArray[get_tp()]->priority){
+                RVCWriteText("Schedule\n", 9);
                 schedule();
             }
+            
             return RVCOS_STATUS_SUCCESS;
         }
     }
