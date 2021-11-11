@@ -272,7 +272,7 @@ uint32_t *init_Stack(uint32_t* sp, TThreadEntry function, uint32_t param, uint32
 }
 
 TThreadEntry idle(){
-    RVCWriteText("idle\n", 5);
+    //RVCWriteText("idle\n", 5);
     asm volatile ("csrw mie, %0" : : "r"(0x888));   // Enable all interrupt soruces: csr_write_mie(0x888);
     asm volatile ("csrsi mstatus, 0x8");            // Global interrupt enable: csr_enable_interrupts()
     while(1);
@@ -343,7 +343,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     }
 }
 
-/*TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
+TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
     if (buffer == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
@@ -351,13 +351,15 @@ TStatus RVCInitialize(uint32_t *gp) {
         struct TCB* currentThread = threadArray[get_tp()];
         currentThread->buffer = buffer;
         currentThread->writesize = writesize;
+        currentThread->state = RVCOS_THREAD_STATE_WAITING;
         insertRQ(writerQ, currentThread->tid);
+        schedule();
         return RVCOS_STATUS_SUCCESS;
     }
-}*/
+}
 
 
-TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
+TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
     if (buffer == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
@@ -402,9 +404,7 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
                             char c = buffer[i];
                             if (c == 'J') {
                                 // Erase screen (zero out video_memory)
-                                for (int j = 0; j < 2304; j++) {
-                                    VIDEO_MEMORY[j] = 0;
-                                }
+                                memset(VIDEO_MEMORY, 0, 2304);
                             }
                         } else {
                             int ln = (int)c - '0';
@@ -954,14 +954,17 @@ TStatus RVCMutexRelease(TMutexID mutex) {
         }
         // nothing in any of the pqs
         if(nextTid == -1){
+            RVCWriteText("nothing\n",8);
             return RVCOS_STATUS_SUCCESS;
         }
         else{
             RVCWriteText("Else 2\n", 7);
             struct TCB *nextThread = threadArray[nextTid];
+            nextThread->state = RVCOS_THREAD_STATE_READY;
             enqueueThread(nextThread);
             mx->holder = nextTid;
             mx->unlocked = 0;
+            //schedule();
             if (nextThread->priority > threadArray[get_tp()]->priority){
                 RVCWriteText("Schedule\n", 9);
                 schedule();

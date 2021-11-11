@@ -75,6 +75,7 @@ void init(void){
         *Base++ = 0;
     }
 
+    INTR_ENAB_REG = 0x2;
     csr_write_mie(0x888);       // Enable all interrupt soruces
     csr_enable_interrupts();    // Global interrupt enable
     MTIMECMP_LOW = 1;
@@ -114,8 +115,8 @@ extern struct ReadyQ *sleeperQ;
 extern int removeRQ(struct ReadyQ *Q);
 extern void insertRQ(struct ReadyQ *Q, int tid);
 extern struct ReadyQ *writerQ;
-extern TStatus WriteText(const TTextCharacter *buffer, TMemorySize writesize);
-
+extern TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize);
+extern volatile int num_of_threads;
 
 struct ReadyQ{
     int* queue;
@@ -124,6 +125,25 @@ struct ReadyQ{
     int size;
 };
 
+
+void video_interrupt_handler(void){
+    if(INTR_PEND_REG & 0x2){
+        // video interrupt
+        //RVCWriteText("video interrupt\n",15);
+        struct TCB* curr = threadArray[get_tp()];
+	    while(writerQ->size != 0){
+            int threadTID = removeRQ(writerQ);
+            struct TCB* thread = threadArray[threadTID];
+            thread->state = RVCOS_THREAD_STATE_READY;
+		    RVCWriteText1(thread->buffer, thread->writesize);
+            enqueueThread(thread);
+            if(thread->priority > curr->priority){
+                schedule();
+            }
+	    }
+        INTR_PEND_REG = 0x2;
+    }
+}
 
 
 
@@ -148,9 +168,12 @@ void c_interrupt_handler(void){
 
     // need to make sure its a timer interrupt
     // save mepc
-    //struct TCB* curr = threadArray[get_tp()];
-    //curr->state = RVCOS_THREAD_STATE_READY;
-    //enqueueThread(curr);
+    /*if(num_of_threads >= 3){
+        struct TCB* curr = threadArray[get_tp()];
+        curr->state = RVCOS_THREAD_STATE_READY;
+        enqueueThread(curr);
+    }*/
+
     global++;
     controller_status = CONTROLLER;
     for(int i = 0; i < sleeperQ->size; i++){
@@ -169,7 +192,9 @@ void c_interrupt_handler(void){
             insertRQ(sleeperQ, threadId);
         }
     }
-    //schedule();
+    /*if(num_of_threads >= 3){
+        schedule();
+    }*/
     
     
     /*if(numSleepers == 0){
