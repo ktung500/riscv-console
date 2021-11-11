@@ -383,9 +383,16 @@ TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
                         }
                         char c = buffer[i];
                         if (c == 'A') {
-                            cursor -= 0x40;
+                            if (cursor >= 0x40) {
+                                cursor -= 0x40;
+                            }
                         } else if (c == 'B') {
                             cursor += 0x40;
+                            if (cursor >= 2304) {
+                                memmove(VIDEO_MEMORY, VIDEO_MEMORY + 0x40, 64*35);
+                                memset(VIDEO_MEMORY + 64*35, 0, 64);
+                                cursor -= 0x40;
+                            }
                         } else if (c == 'C') {
                             if (cursor % 0x40 != 63) { // only move right if not at the right of screen
                                 cursor += 1;
@@ -442,7 +449,12 @@ TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
                 else if (c == '\n') {
                     cursor += 0x40;
                     cursor = cursor & ~0x3F;
-                    VIDEO_MEMORY[cursor] = c;
+                    //VIDEO_MEMORY[cursor] = c;
+                    if (cursor >= 2304) {
+                        memmove(VIDEO_MEMORY, VIDEO_MEMORY + 0x40, 64*35);
+                        memset(VIDEO_MEMORY + 64*35, 0, 64);
+                        cursor -= 0x40;
+                    }
                 } else if(c == '\b') {
                     cursor -= 1;
                     //VIDEO_MEMORY[cursor] = c;
@@ -866,7 +878,7 @@ TStatus RVCMutexQuery(TMutexID mutex, TThreadIDRef ownerref) {
         return RVCOS_THREAD_ID_INVALID;
     }
     // If mutex doesn't exist
-    if (mutexArray[mutex]->mxid == NULL) {
+    if (mutexArray[mutex] == NULL) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     *ownerref = mutexArray[mutex] -> holder;
