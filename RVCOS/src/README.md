@@ -1,4 +1,4 @@
-# Project 2
+# Project 3
 ## Nicholas McLean 915804621 & Kevin Tung 915936476
 ### Sources
 https://www.tutorialspoint.com/data_structures_algorithms/queue_program_in_c.htm
@@ -7,15 +7,17 @@ Based our queue's off this implementation.
 ### Working
 Has Makefile and submission compiles 
 Has README with sources cited 
-Jumps into cartridge application when inserted 
-Responds to system call and return control to app 
-Initializes the main thread and returns control to cartridge 
-Supports text output to console 
-Able to read input from console controller 
-Able to create threads and switch contexts 
-Supports querying of status/thread ID of threads 
+Can correctly run updated apps from project 2 
+All allocations using RVCMemoryAllocate (even if malloc is used to implement 
+RVCMemoryAllocate) 
+TCBs are dynamically allocated (no 256 limit of fixed array) 
+RVCWriteText supports VT100 codes 
+RVCWriteText blocks until next video refresh 
+Mutexes are fully functional 
 
 ### Not Working
-Can setup and respond to timer interrupts 
-Threads can sleep and wait on other threads 
+MemoryPools  are  implemented  correctly  (exception  may  be  system  pool  using 
+malloc/free still) 
+System memory pool does not rely on malloc/free at all 
 Full applications execute correctly 
+ 
