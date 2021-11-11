@@ -153,9 +153,8 @@ void video_interrupt_handler(void){
     }
 }
 
-
-
-void c_interrupt_handler(void){
+void timer_interrupt_handler()
+{
     uint64_t NewCompare = (((uint64_t)MTIMECMP_HIGH)<<32) | MTIMECMP_LOW;
     NewCompare += 2;
     MTIMECMP_HIGH = NewCompare>>32;
@@ -191,6 +190,15 @@ void c_interrupt_handler(void){
     }
     if(num_of_threads > 1){
         schedule();
+    }
+}
+
+
+
+void c_interrupt_handler(uint32_t mcause){
+    switch(mcause){
+        case 0x80000007: return timer_interrupt_handler();
+        case 0x8000000B: return video_interrupt_handler();
     }
     
 }
