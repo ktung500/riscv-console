@@ -135,8 +135,8 @@ void video_interrupt_handler(void){
 	    while(writerQ->size != 0){
             int threadTID = removeRQ(writerQ);
             struct TCB* thread = threadArray[threadTID];
-            thread->state = RVCOS_THREAD_STATE_READY;
 		    RVCWriteText1(thread->buffer, thread->writesize);
+            thread->state = RVCOS_THREAD_STATE_READY;
             thread->buffer = NULL;
             thread->writesize = NULL;
             enqueueThread(thread);
@@ -165,10 +165,10 @@ void c_interrupt_handler(void){
     // need to make sure its a timer interrupt
     // save mepc
     struct TCB* curr = threadArray[get_tp()];
-    if(num_of_threads >= 2){
+    if(num_of_threads > 1){
         curr->state = RVCOS_THREAD_STATE_READY;
         //RVCWriteText1("main enqueued\n",14);
-        enqueueThread(curr);
+    //    enqueueThread(curr);
     }
 
     global++;
@@ -182,14 +182,14 @@ void c_interrupt_handler(void){
             thread->state = RVCOS_THREAD_STATE_READY;
             //numSleepers--;
             enqueueThread(thread);
-            schedule(); 
+            //schedule(); 
             // need to handle decrementing the numSleepers correctly
         }
         else{
             insertRQ(sleeperQ, threadId);
         }
     }
-    if(num_of_threads >= 2){
+    if(num_of_threads > 1){
         schedule();
     }
     

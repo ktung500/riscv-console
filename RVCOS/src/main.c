@@ -737,18 +737,24 @@ void schedule(){
             nextTid = 1;
         }
     }
-    
     nextT = threadArray[nextTid];
-    nextT->state = RVCOS_THREAD_STATE_RUNNING;
-    if(threadArray[get_tp()]->tid != nextT->tid){
+
+    
+
+
+    if(current->tid != nextTid){
         if(current->state != RVCOS_THREAD_STATE_DEAD && current->state != RVCOS_THREAD_STATE_WAITING && nextT->state != RVCOS_THREAD_STATE_DEAD){
             current->state = RVCOS_THREAD_STATE_READY;
             enqueueThread(current);
         }
-        
+        nextT->state = RVCOS_THREAD_STATE_RUNNING;
         ContextSwitch((void *)&current->sp, threadArray[nextTid]->sp);
         
     }
+    else{
+        current->state = RVCOS_THREAD_STATE_RUNNING;
+    }
+
 }
 
 TStatus RVCThreadSleep(TTick tick) {
