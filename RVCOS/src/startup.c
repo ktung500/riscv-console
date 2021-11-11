@@ -131,17 +131,25 @@ void video_interrupt_handler(void){
         // video interrupt
         //RVCWriteText("video interrupt\n",15);
         struct TCB* curr = threadArray[get_tp()];
+        int flag = 0;
 	    while(writerQ->size != 0){
             int threadTID = removeRQ(writerQ);
             struct TCB* thread = threadArray[threadTID];
             thread->state = RVCOS_THREAD_STATE_READY;
 		    RVCWriteText1(thread->buffer, thread->writesize);
+            thread->buffer = NULL;
+            thread->writesize = NULL;
             enqueueThread(thread);
             if(thread->priority > curr->priority){
-                schedule();
+                flag = 1;
             }
+            
 	    }
         INTR_PEND_REG = 0x2;
+        if(flag){
+                schedule();
+        }
+        
     }
 }
 
@@ -154,25 +162,14 @@ void c_interrupt_handler(void){
     MTIMECMP_LOW = NewCompare;
     tick_count++;
 
-    /*if(INTR_PEND_REG & 0x2){
-        // video interrupt
-        //RVCWriteText("video interrupt\n",15);
-	    for(int i = 0; 0 < writerQ->size; i++){
-            int threadTID = removeRQ(writerQ);
-            struct TCB* thread = threadArray[threadTID];
-		    WriteText(thread->buffer, thread->writesize);
-	    }
-        INTR_PEND_REG = 0x2;
-    }*/
-
-
     // need to make sure its a timer interrupt
     // save mepc
-    /*if(num_of_threads >= 3){
-        struct TCB* curr = threadArray[get_tp()];
+    struct TCB* curr = threadArray[get_tp()];
+    if(num_of_threads >= 2){
         curr->state = RVCOS_THREAD_STATE_READY;
+        //RVCWriteText1("main enqueued\n",14);
         enqueueThread(curr);
-    }*/
+    }
 
     global++;
     controller_status = CONTROLLER;
@@ -192,9 +189,9 @@ void c_interrupt_handler(void){
             insertRQ(sleeperQ, threadId);
         }
     }
-    /*if(num_of_threads >= 3){
+    if(num_of_threads >= 2){
         schedule();
-    }*/
+    }
     
     
     /*if(numSleepers == 0){

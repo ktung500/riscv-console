@@ -68,6 +68,7 @@ struct ReadyQ* createReadyQ(int size){
 
 
 struct PrioQ {
+    int size;
     int* highPQ;
     int highFront;
     int highRear;
@@ -104,6 +105,7 @@ struct PrioQ* createQueue(int maxSize)
         Q -> lowRear = -1;
         Q -> lowSize = 0;
         RVCMemoryPoolAllocate(0, sizeof(int)*maxSize, (void**)&Q->lowPQ);
+        Q -> size = 0;
         /* Return the pointer */
         return Q;
 }
@@ -135,6 +137,7 @@ int removeRQ(struct ReadyQ *Q){
 
 //void insert(int data, int* PQ, int front, int rear, int size ) {
 void insert(struct PrioQ *Q, int data, TThreadPriority priority) {
+    Q->size++;
     if (priority == RVCOS_THREAD_PRIORITY_HIGH){
         if(Q->highSize != 256) {
             if(Q->highRear == 255) {
@@ -170,6 +173,7 @@ void insert(struct PrioQ *Q, int data, TThreadPriority priority) {
 
 int removeData(struct PrioQ *Q, TThreadPriority prio) {
     int data = 1;
+    Q->size--;
     if (prio == RVCOS_THREAD_PRIORITY_HIGH) {
         if (Q->highSize > 0) {
             data = Q->highPQ[(Q->highFront)++];
@@ -729,8 +733,11 @@ void schedule(){
     } else if (scheduleQ->lowSize != 0) {
         nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_LOW);
     } else {
-        nextTid = 1;
+        if(scheduleQ->size == 0){
+            nextTid = 1;
+        }
     }
+    
     nextT = threadArray[nextTid];
     nextT->state = RVCOS_THREAD_STATE_RUNNING;
     if(threadArray[get_tp()]->tid != nextT->tid){
@@ -942,18 +949,18 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
 // the running thread. Release of the mutex may cause another higher priority thread to be scheduled 
 // if it acquires the newly released mutex.  
 TStatus RVCMutexRelease(TMutexID mutex) {
-    RVCWriteText("Release\n", 8);
+    //RVCWriteText("Release\n", 8);
     if (mutexArray[mutex] == NULL) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(mutexArray[mutex]->holder != get_tp()){ 
         //  If  the  mutex  specified  by  the  mutex identifier mutex does exist, but is not currently held by the running thread, 
         // RVCOS_STATUS_ERROR_INVALID_STATE is returned. 
-        RVCWriteText("Not running thr\n", 16);
+        //RVCWriteText("Not running thr\n", 16);
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
-        RVCWriteText("Else\n", 5);
+        //RVCWriteText("Else\n", 5);
         struct Mutex *mx = mutexArray[mutex];
         mx->holder = NULL;
         mx->unlocked = 1;
@@ -966,11 +973,11 @@ TStatus RVCMutexRelease(TMutexID mutex) {
         }
         // nothing in any of the pqs
         if(nextTid == -1){
-            RVCWriteText("nothing\n",8);
+            //RVCWriteText("nothing\n",8);
             return RVCOS_STATUS_SUCCESS;
         }
         else{
-            RVCWriteText("Else 2\n", 7);
+            //RVCWriteText("Else 2\n", 7);
             struct TCB *nextThread = threadArray[nextTid];
             nextThread->state = RVCOS_THREAD_STATE_READY;
             enqueueThread(nextThread);
@@ -978,7 +985,7 @@ TStatus RVCMutexRelease(TMutexID mutex) {
             mx->unlocked = 0;
             //schedule();
             if (nextThread->priority > threadArray[get_tp()]->priority){
-                RVCWriteText("Schedule\n", 9);
+                //RVCWriteText("Schedule\n", 9);
                 schedule();
             }
             
