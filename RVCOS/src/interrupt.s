@@ -5,10 +5,6 @@
 _interrupt_handler:
     csrw    mscratch,ra
     csrr    ra,mcause
-    #mv      t0 ,ra
-    # srli    t0, t0, 31
-    # addi    t0, t0,-1             # the mcause will be 8000000b in the case of a Machine external interrupt
-    # beqz    t0,video_interrupt 
 
     addi    ra,ra,-11              # the mcause will be 11 in the case of an ecall.
     bnez    ra,hardware_interrupt  # if the interrput is not = to 0, its not a syscall so go to hardware interrupt
@@ -37,52 +33,8 @@ hardware_interrupt:
    bnez    ra, timer_interrupt  
    ret
 
-#    csrr ra,mscratch # puts mscratch into ra
-#    addi sp,sp,-48
-#    sw ra,44(sp)
-#    csrr ra, mepc  # puts mepc into ra
-#    sw gp,40(sp)
-#    sw ra,36(sp)
-#    sw t0,32(sp)
-#    sw t1,28(sp)
-#    sw t2,24(sp)
-#    sw a0,20(sp)
-#    sw a1,16(sp)
-#    sw a2,12(sp)
-#    sw a3,8(sp)
-#    sw a4,4(sp)
-#    sw a5,0(sp)
-#    .option push
-#    .option norelax
-#    la gp, __global_pointer$
-#    .option pop
-#    call c_interrupt_handler
-   
-#    lw gp,40(sp)
-   
-#    lw ra,36(sp)
-#    csrw mepc,ra
-   
-#    lw ra,44(sp)
-#    lw t0,32(sp)
-#    lw t1,28(sp)
-#    lw t2,24(sp)
-#    lw a0,20(sp)
-#    lw a1,16(sp)
-#    lw a2,12(sp)
-#    lw a3,8(sp)
-#    lw a4,4(sp)
-#    lw a5,0(sp)
-#    addi sp,sp,48
-#    mret
 
 video_interrupt:
-#    csrr    ra,mcause
-#    slli    ra, ra, 1
-#    srli    ra, ra, 1 
-#    addi    ra,ra,-11 
-#    bnez ra, 
-
    csrr ra,mscratch # puts mscratch into ra
    addi sp,sp,-48
    sw ra,44(sp)
@@ -142,11 +94,6 @@ timer_interrupt:
    .option norelax
    la gp, __global_pointer$
    .option pop
-#    csrr    ra,mcause
-#    slli    ra, ra, 1
-#    srli    ra, ra, 1 
-#    addi    ra,ra,-11             # the mcause will be 8000000b in the case of a Machine external interrupt
-#    beqz    ra,video_interrupt  
    call c_interrupt_handler
    #lw ra,44(sp)
    lw gp,40(sp)
@@ -168,37 +115,6 @@ timer_interrupt:
    mret
 
 
-
-# hardware_interrupt:
-#     csrr ra,mscratch
-#     addi sp,sp,-40
-#     sw ra,36(sp)
-#     sw t0,32(sp)
-#     sw t1,28(sp)
-#     sw t2,24(sp)
-#     sw a0,20(sp)
-#     sw a1,16(sp)
-#     sw a2,12(sp)
-#     sw a3,8(sp)
-#     sw a4,4(sp)
-#     sw a5,0(sp)
-#     .option push
-#     .option norelax
-#     la gp, __global_pointer$
-#     .option pop
-#     call c_interrupt_handler
-#     lw ra,36(sp)
-#     lw t0,32(sp)
-#     lw t1,28(sp)
-#     lw t2,24(sp)
-#     lw a0,20(sp)
-#     lw a1,16(sp)
-#     lw a2,12(sp)
-#     lw a3,8(sp)
-#     lw a4,4(sp)
-#     lw a5,0(sp)
-#     addi sp,sp,40
-#     mret
 
 enter_cartridge:
     addi    sp,sp,-12

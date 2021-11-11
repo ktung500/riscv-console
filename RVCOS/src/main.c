@@ -511,28 +511,6 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             // need to implement a realloc function using memory pools
             return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
         }
-        else if(global_tid_nums == 256) { // need to parse through the threadArray and get the num of the first empty space
-            TThreadID currThreadID;
-            for(int i = 0; i < 256; i++){
-                if(threadArray[i] == NULL){
-                    currThreadID = i;
-                    continue;
-                }
-            }
-            struct TCB* newThread; 
-            RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)newThread);
-            RVCMemoryPoolAllocate(0, memsize, (void**)&newThread->stack_base);
-            newThread->entry = entry;
-            newThread->param = param;
-            newThread->memsize = memsize;
-            newThread->tid = currThreadID;
-            *tid = newThread->tid;
-            newThread->state = RVCOS_THREAD_STATE_CREATED;
-            newThread->priority = prio;
-            //newThread->pid = -1;
-            threadArray[currThreadID] = newThread;
-            num_of_threads++;
-        }
         else{
             struct TCB* newThread; // initializing TCB of a thread
             RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&newThread);
@@ -680,8 +658,6 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
         currThread->ticks = timeout;
         currThread->state = RVCOS_THREAD_STATE_WAITING;
         insertRQ(sleeperQ, currThread->tid);
-        //sleepers[sleeperCursor] = currThread;
-        //sleeperCursor++;
         numSleepers++;
         schedule();
         // schedules next thread after putting current thread to sleep
@@ -941,8 +917,14 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
         }else{
             // mutex is locked and the thread will block until mutex is unlocked
             currThread->state = RVCOS_THREAD_STATE_WAITING;
+            currThread->ticks = timeout;
+            insertRQ(sleeperQ, currThread->tid);
+            if(currThread->ticks == 0){
+                 return RVCOS_STATUS_FAILURE;
+                
+            }
             // set currthread to waiting, add thread to pq, 
-            insert(mx->pq, currThread->tid, currThread->priority);
+            //insert(mx->pq, currThread->tid, currThread->priority);
             // need to schedule the next thread cause this one is waiting for the mutex to be released
             schedule();
         }

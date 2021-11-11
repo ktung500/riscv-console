@@ -193,9 +193,5 @@ void c_interrupt_handler(void){
         schedule();
     }
     
-    
-    /*if(numSleepers == 0){
-        schedule();
-    }*/
 }
 
