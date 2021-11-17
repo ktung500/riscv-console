@@ -132,14 +132,16 @@ void video_interrupt_handler(void){
         //RVCWriteText("video interrupt\n",15);
         struct TCB* curr = threadArray[get_tp()];
         int flag = 0;
-	    while(writerQ->size != 0){
+	    while(writerQ->size){
             int threadTID = removeRQ(writerQ);
             struct TCB* thread = threadArray[threadTID];
 		    RVCWriteText1(thread->buffer, thread->writesize);
-            thread->state = RVCOS_THREAD_STATE_READY;
-            thread->buffer = NULL;
-            thread->writesize = NULL;
-            enqueueThread(thread);
+            if(thread->state != RVCOS_THREAD_STATE_DEAD){
+                thread->state = RVCOS_THREAD_STATE_READY;
+                thread->buffer = NULL;
+                thread->writesize = NULL;
+                enqueueThread(thread);
+            }
             if(thread->priority > curr->priority){
                 flag = 1;
             }
@@ -164,8 +166,10 @@ void timer_interrupt_handler()
     // need to make sure its a timer interrupt
     // save mepc
     struct TCB* curr = threadArray[get_tp()];
-    if(num_of_threads > 1){
-        curr->state = RVCOS_THREAD_STATE_READY;
+    if(num_of_threads > 2){
+        if(curr->state != RVCOS_THREAD_STATE_DEAD){
+            curr->state = RVCOS_THREAD_STATE_READY;
+        }
         //RVCWriteText1("main enqueued\n",14);
     //    enqueueThread(curr);
     }
@@ -178,9 +182,11 @@ void timer_interrupt_handler()
         thread->ticks = thread->ticks - 1;      
         if(thread->ticks == 0){  // thread wakes up
             //sleepers[i] == NULL;
-            thread->state = RVCOS_THREAD_STATE_READY;
-            //numSleepers--;
-            enqueueThread(thread);
+            if(thread->state != RVCOS_THREAD_STATE_DEAD){
+                thread->state = RVCOS_THREAD_STATE_READY;
+                //numSleepers--;
+                enqueueThread(thread);
+            }
             //schedule(); 
             // need to handle decrementing the numSleepers correctly
         }
@@ -188,7 +194,7 @@ void timer_interrupt_handler()
             insertRQ(sleeperQ, threadId);
         }
     }
-    if(num_of_threads > 1){
+    if(num_of_threads > 2){
         schedule();
     }
 }

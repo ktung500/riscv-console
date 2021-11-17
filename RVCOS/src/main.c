@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include "RVCOS.h"
 
 // QUESTIONS???
@@ -475,6 +476,15 @@ TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
     }
 }
 
+// taken from CartridgeThreadWait
+void WriteString(const char *str){
+    const char *Ptr = str;
+    while(*Ptr){
+        Ptr++;
+    }
+    RVCWriteText1(str,Ptr-str);
+}
+
 TStatus RVCReadController(SControllerStatusRef statusref){
     if (statusref == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
@@ -562,6 +572,7 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
         enqueueThread(actThread);
         struct TCB* currentThread = threadArray[get_tp()];
         if(actThread->priority > currentThread->priority){
+            //currentThread->state = RVCOS_THREAD_STATE_READY;
             enqueueThread(currentThread);
             schedule();
         }
@@ -590,8 +601,25 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     if (currThread->state == RVCOS_THREAD_STATE_DEAD || currThread->state == RVCOS_THREAD_STATE_CREATED){
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
+    WriteString("\nthread terminating: ");
+    char buff[20];
+    uint32_t id = thread;
+    itoa(id, buff, 10);
+    WriteString(buff);
+    WriteString("\nthread retval: ");
+    char buff1[20];
+    uint32_t id1 = returnval;
+    itoa(id1, buff1, 10);
+    WriteString(buff1);
+    //WriteString("\n");
     currThread->state = RVCOS_THREAD_STATE_DEAD;
     currThread->ret_val = returnval;
+     WriteString("\nthread state: ");
+    char buff2[20];
+    uint32_t id2 = currThread->state;
+    itoa(id2, buff2, 10);
+    WriteString(buff2);
+    WriteString("\n");
     // if there are waiters
     if(waiterQ->size != 0){
         int flag = 0;
@@ -608,7 +636,7 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
                 }
             }
             else{
-                insertRQ(waiterQ,waiterTID);
+                insertRQ(waiterQ,waiter->tid);
             }
         }
         if(flag == 1){
@@ -617,6 +645,7 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     }
     //If the thread terminating is the current running thread, then you will definitely need to schedule.
     if(threadArray[get_tp()] == currThread){
+        //RVCWriteText1("current thread dead\n",20);
         schedule();
     }
     return RVCOS_STATUS_SUCCESS;
@@ -651,7 +680,7 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
             *returnref = (TThreadReturn)currThread->ret_val;
             return RVCOS_STATUS_SUCCESS;
         }
-        *returnref = (TThreadReturn)waitThread->ret_val;
+        *returnref = (TThreadReturn)waitThread->ret_val; // not sure what this is for
         return RVCOS_STATUS_SUCCESS;
     }
     else{
@@ -674,7 +703,7 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
             *returnref = (TThreadReturn)currThread->ret_val;
             return RVCOS_STATUS_SUCCESS;
         }
-        *returnref = (TThreadReturn)waitThread->ret_val;
+        //*returnref = (TThreadReturn)waitThread->ret_val;   
         return RVCOS_STATUS_SUCCESS;
     }
 }
@@ -714,22 +743,21 @@ void schedule(){
         }
     }
     nextT = threadArray[nextTid];
-
-    
-
-
     if(current->tid != nextTid){
+        nextT->state = RVCOS_THREAD_STATE_RUNNING;
         if(current->state != RVCOS_THREAD_STATE_DEAD && current->state != RVCOS_THREAD_STATE_WAITING && nextT->state != RVCOS_THREAD_STATE_DEAD){
             current->state = RVCOS_THREAD_STATE_READY;
             enqueueThread(current);
         }
-        nextT->state = RVCOS_THREAD_STATE_RUNNING;
+        
         ContextSwitch((void *)&current->sp, threadArray[nextTid]->sp);
         
     }
-    else{
+    /*else{
         current->state = RVCOS_THREAD_STATE_RUNNING;
-    }
+        nextT->state = RVCOS_THREAD_STATE_READY;
+        enqueueThread(nextT);
+    }*/
 
 }
 

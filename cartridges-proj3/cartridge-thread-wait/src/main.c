@@ -44,6 +44,11 @@ TThreadReturn LowPriorityThread(void *param){
     RVCThreadWait(HighThreadID,&ReturnValue,RVCOS_TIMEOUT_INFINITE);
     WriteString("Low Awake:     ");
     if(EXPECTED_RETURN != ReturnValue){
+        char buff[20];
+        uint32_t id = ReturnValue;
+        itoa(id, buff, 10);
+        WriteString(buff);
+        WriteString("\n");
         WriteString("Invalid Return\n");
         return 0;
     }
