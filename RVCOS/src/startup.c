@@ -128,6 +128,7 @@ struct ReadyQ{
 
 void video_interrupt_handler(void){
     if(INTR_PEND_REG & 0x2){
+        INTR_PEND_REG = 0x2;
         // video interrupt
         //RVCWriteText("video interrupt\n",15);
         struct TCB* curr = threadArray[get_tp()];
@@ -148,7 +149,6 @@ void video_interrupt_handler(void){
             }
             
 	    }
-        INTR_PEND_REG = 0x2;
         if(flag){
             schedule();
         }
@@ -196,6 +196,8 @@ void timer_interrupt_handler()
         }
     }
     if(num_of_threads > 2){
+        curr->state = RVCOS_THREAD_STATE_READY;
+        enqueueThread(curr);
         schedule();
     }
 }

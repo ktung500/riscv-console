@@ -8,6 +8,8 @@
 // How to dynamically do queues? (Do I use realloc)
 // How to check if in writetext if it is VT-100 sequence? (Do I first check: '0x1B'?)
 // 
+//#define DEBUG(str)    WriteString2((str),strlen(str))
+
 
 volatile int global;
 volatile int cursor; // used for global cursor
@@ -361,6 +363,7 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
         currentThread->writesize = writesize;
         currentThread->state = RVCOS_THREAD_STATE_WAITING;
         insertRQ(writerQ, currentThread->tid);
+        // Insert current before scheduling
         schedule();
         return RVCOS_STATUS_SUCCESS;
     }
@@ -522,7 +525,7 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
             threadArray = temp;
             threadArraySize = newSize;
             // need to implement a realloc function using memory pools
-            return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
+            // return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
         }
         else{
             struct TCB* newThread; // initializing TCB of a thread
@@ -577,7 +580,7 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
         enqueueThread(actThread);
         struct TCB* currentThread = threadArray[get_tp()];
         if(actThread->priority > currentThread->priority){
-            //currentThread->state = RVCOS_THREAD_STATE_READY;
+            currentThread->state = RVCOS_THREAD_STATE_READY;
             enqueueThread(currentThread);
             schedule();
         }
@@ -742,41 +745,40 @@ void schedule(){
     int nextTid = 0;
     struct TCB* nextT;
     if (scheduleQ->highSize != 0) {
+
         nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_HIGH);
+
     } else if (scheduleQ->norSize != 0) {
-        
+
         nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_NORMAL);
-        
-        
+
     } else if (scheduleQ->lowSize != 0) {
         // RVCWriteText1("Schedule thread: ", 17);
-        RVCWriteText1("            ", 12);
+        //RVCWriteText1("           ", 11);
         nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_LOW);
         // char buff[1];
         // uint32_t id = nextTid;
         // itoa(nextTid, buff, 10);
         // WriteString(buff);
     } else {
-        if(scheduleQ->size == 0){
-            nextTid = 1;
-        }
+        nextTid = 1;
     }
     nextT = threadArray[nextTid];
     if(current->tid != nextTid){
         nextT->state = RVCOS_THREAD_STATE_RUNNING;
-        if(current->state != RVCOS_THREAD_STATE_DEAD && current->state != RVCOS_THREAD_STATE_WAITING && nextT->state != RVCOS_THREAD_STATE_DEAD){
-            current->state = RVCOS_THREAD_STATE_READY;
-            enqueueThread(current);
-        }
+        // if(current->state != RVCOS_THREAD_STATE_DEAD && current->state != RVCOS_THREAD_STATE_WAITING && nextT->state != RVCOS_THREAD_STATE_DEAD){
+        //     current->state = RVCOS_THREAD_STATE_READY;
+        //     //enqueueThread(current);
+        // }
         
         ContextSwitch((void *)&current->sp, threadArray[nextTid]->sp);
         
     }
-    /*else{
+    else{
         current->state = RVCOS_THREAD_STATE_RUNNING;
-        nextT->state = RVCOS_THREAD_STATE_READY;
-        enqueueThread(nextT);
-    }*/
+        //nextT->state = RVCOS_THREAD_STATE_READY;
+        // enqueueThread(nextT);
+    }
 
 }
 
@@ -973,6 +975,7 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
             // set currthread to waiting, add thread to pq, 
             //insert(mx->pq, currThread->tid, currThread->priority);
             // need to schedule the next thread cause this one is waiting for the mutex to be released
+
             schedule();
         }
         return RVCOS_STATUS_FAILURE;
@@ -1012,7 +1015,6 @@ TStatus RVCMutexRelease(TMutexID mutex) {
             return RVCOS_STATUS_SUCCESS;
         }
         else{
-            //RVCWriteText("Else 2\n", 7);
             struct TCB *nextThread = threadArray[nextTid];
             nextThread->state = RVCOS_THREAD_STATE_READY;
             enqueueThread(nextThread);
@@ -1021,6 +1023,8 @@ TStatus RVCMutexRelease(TMutexID mutex) {
             //schedule();
             if (nextThread->priority > threadArray[get_tp()]->priority){
                 //RVCWriteText("Schedule\n", 9);
+                threadArray[get_tp()]->state = RVCOS_THREAD_STATE_READY;
+                enqueueThread(threadArray[get_tp()]);
                 schedule();
             }
             

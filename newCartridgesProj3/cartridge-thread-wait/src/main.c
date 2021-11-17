@@ -96,12 +96,12 @@ TThreadReturn LowPriorityThread(void *param){
     WriteString("Checking Main: ");
     RVCThreadState(MainThreadID,&ThreadState);
     if(RVCOS_THREAD_STATE_WAITING != ThreadState){
-        WriteString("\n main state: ");
-        char buff[20];
-        uint32_t id = ThreadState;
-        itoa(id, buff, 10);
-        WriteString(buff);
-        WriteString(" ");
+        // WriteString("\n main state: ");
+        // char buff[20];
+        // uint32_t id = ThreadState;
+        // itoa(id, buff, 10);
+        // WriteString(buff);
+        // WriteString(" ");
         WriteString("Invalid State\n");
         return 1;
     }
@@ -109,13 +109,13 @@ TThreadReturn LowPriorityThread(void *param){
     WriteString("Checking This: ");
     RVCThreadState(LowThreadID,&ThreadState);
     if(RVCOS_THREAD_STATE_RUNNING != ThreadState){
-        WriteString("\n low state: ");
-        char buff[20];
-        uint32_t id = ThreadState;
-        itoa(id, buff, 10);
-        //snprintf(buff, 10, "%d", id);
-        WriteString(buff);
-        WriteString(" ");
+        // WriteString("\n low state: ");
+        // char buff[20];
+        // uint32_t id = ThreadState;
+        // itoa(id, buff, 10);
+        // //snprintf(buff, 10, "%d", id);
+        // WriteString(buff);
+        // WriteString(" ");
         WriteString("Invalid State\n");
         return 1;
     }
@@ -124,12 +124,12 @@ TThreadReturn LowPriorityThread(void *param){
     RVCThreadWait(HighThreadID,&ReturnValue,RVCOS_TIMEOUT_INFINITE);
     WriteString("Low Awake:     ");
     if(EXPECTED_RETURN != ReturnValue){
-        WriteString("\n high returnval: ");
-        char buff[20];
-        uint32_t id = ReturnValue;
-        itoa(id, buff, 10);
-        WriteString(buff);
-        WriteString(" ");
+        // WriteString("\n high returnval: ");
+        // char buff[20];
+        // uint32_t id = ReturnValue;
+        // itoa(id, buff, 10);
+        // WriteString(buff);
+        // WriteString(" ");
         WriteString("Invalid Return\n");
         return 0;
     }
@@ -152,13 +152,13 @@ TThreadReturn HighPriorityThread(void *param){
     WriteString("Checking Main: ");
     RVCThreadState(MainThreadID,&ThreadState);
     if(RVCOS_THREAD_STATE_WAITING != ThreadState){
-        WriteString("\n main state: ");
-        char buff[1];
-        uint32_t id = ThreadState;
-        itoa(id, buff, 10);
-        //snprintf(buff, 10, "%d", id);
-        WriteString(buff);
-        WriteString("\n");
+        // WriteString("\n main state: ");
+        // char buff[1];
+        // uint32_t id = ThreadState;
+        // itoa(id, buff, 10);
+        // //snprintf(buff, 10, "%d", id);
+        // WriteString(buff);
+        // WriteString("\n");
         WriteString("Invalid State\n");
         return 1;
     }
@@ -166,13 +166,13 @@ TThreadReturn HighPriorityThread(void *param){
     WriteString("Checking This: ");
     RVCThreadState(HighThreadID,&ThreadState);
     if(RVCOS_THREAD_STATE_RUNNING != ThreadState){
-        WriteString("\n high state: ");
-        char buff[1];
-        uint32_t id = ThreadState;
-        itoa(id, buff, 10);
-        //snprintf(buff, 10, "%d", id);
-        WriteString(buff);
-        WriteString("\n");
+        // WriteString("\n high state: ");
+        // char buff[1];
+        // uint32_t id = ThreadState;
+        // itoa(id, buff, 10);
+        // //snprintf(buff, 10, "%d", id);
+        // WriteString(buff);
+        // WriteString("\n");
         WriteString("Invalid State\n");
         return 1;
     }
@@ -188,10 +188,10 @@ int main(){
     WriteString("Main Thread:   ");
     RVCThreadID(&MainThreadID);
 
-    char buff[1];
-    uint32_t id = MainThreadID;
-    itoa(id, buff, 10);
-    WriteString(buff);
+    // char buff[1];
+    // uint32_t id = MainThreadID;
+    // itoa(id, buff, 10);
+    // WriteString(buff);
     
     RVCThreadState(MainThreadID,&ThreadState);
     if(RVCOS_THREAD_STATE_RUNNING != ThreadState){
@@ -202,10 +202,10 @@ int main(){
     RVCThreadCreate(HighPriorityThread,NULL,2048,RVCOS_THREAD_PRIORITY_HIGH,&HighThreadID);
     WriteString("High Created:  ");
 
-    char buff1[1];
-    uint32_t id1 = HighThreadID;
-    itoa(id1, buff1, 10);
-    WriteString(buff1);
+    // char buff1[1];
+    // uint32_t id1 = HighThreadID;
+    // itoa(id1, buff1, 10);
+    // WriteString(buff1);
 
     RVCThreadState(HighThreadID,&ThreadState);
     if(RVCOS_THREAD_STATE_CREATED != ThreadState){
@@ -216,10 +216,10 @@ int main(){
     RVCThreadCreate(LowPriorityThread,NULL,2048,RVCOS_THREAD_PRIORITY_LOW,&LowThreadID);
     WriteString("Low Created:   ");
     
-    char buff2[1];
-    uint32_t id2 = LowThreadID;
-    itoa(id2, buff2, 10);
-    WriteString(buff2);
+    // char buff2[1];
+    // uint32_t id2 = LowThreadID;
+    // itoa(id2, buff2, 10);
+    // WriteString(buff2);
 
     RVCThreadState(LowThreadID,&ThreadState);
     if(RVCOS_THREAD_STATE_CREATED != ThreadState){
@@ -239,25 +239,25 @@ int main(){
     
     WriteString("Checking Low:  ");
     if(EXPECTED_RETURN != ReturnValue){
-        WriteString("\n low retval: ");
-        char buff[1];
-        uint32_t id = ReturnValue;
-        itoa(id, buff, 10);
-        //snprintf(buff, 10, "%d", id);
-        WriteString(buff);
-        WriteString("\n");
+        // WriteString("\n low retval: ");
+        // char buff[1];
+        // uint32_t id = ReturnValue;
+        // itoa(id, buff, 10);
+        // //snprintf(buff, 10, "%d", id);
+        // WriteString(buff);
+        // WriteString("\n");
         WriteString("Invalid Return\n");
         return 1;
     }
     RVCThreadState(LowThreadID,&ThreadState);
     if(RVCOS_THREAD_STATE_DEAD != ThreadState){
-        WriteString("\n low state: ");
-        char buff[1];
-        uint32_t id = ThreadState;
-        itoa(id, buff, 10);
-        //snprintf(buff, 10, "%d", id);
-        WriteString(buff);
-        WriteString("\n");
+        // WriteString("\n low state: ");
+        // char buff[1];
+        // uint32_t id = ThreadState;
+        // itoa(id, buff, 10);
+        // //snprintf(buff, 10, "%d", id);
+        // WriteString(buff);
+        // WriteString("\n");
         WriteString("Invalid State\n");
         return 1;
     }
@@ -266,13 +266,13 @@ int main(){
     WriteString("Checking High: ");
     RVCThreadState(HighThreadID,&ThreadState);
     if(RVCOS_THREAD_STATE_DEAD != ThreadState){
-        WriteString("\n high state: ");
-        char buff[1];
-        uint32_t id = ThreadState;
-        itoa(id, buff, 10);
-        //snprintf(buff, 10, "%d", id);
-        WriteString(buff);
-        WriteString("\n");
+        // WriteString("\n high state: ");
+        // char buff[1];
+        // uint32_t id = ThreadState;
+        // itoa(id, buff, 10);
+        // //snprintf(buff, 10, "%d", id);
+        // WriteString(buff);
+        // WriteString("\n");
         WriteString("Invalid State\n");
         return 1;
     }
