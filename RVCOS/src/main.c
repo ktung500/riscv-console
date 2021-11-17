@@ -335,8 +335,11 @@ TStatus RVCInitialize(uint32_t *gp) {
     threadArray[1] = idleThread;
     num_of_threads += 1;
     idleThread->entry = (TThreadEntry)idle;
-    RVCMemoryPoolAllocate(0, 1024, (void**)&idleThread->stack_base);
-    idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 1024), (TThreadEntry)(idleThread->entry), (uint32_t)(idleThread->param), idleThread->tid);
+    uint8_t *idle_sb;
+    //RVCMemoryPoolAllocate(0, 1024, (void**)&idleThread->stack_base);
+    RVCMemoryPoolAllocate(0, 256, (void**)&idle_sb);
+    idleThread->stack_base = idle_sb;
+    idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 256), (TThreadEntry)(idleThread->entry), (uint32_t)(idleThread->param), idleThread->tid);
     
     app_global_p = gp;
     if (app_global_p == 0) {
@@ -524,11 +527,13 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
         else{
             struct TCB* newThread; // initializing TCB of a thread
             RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&newThread);
-            RVCMemoryPoolAllocate(0, memsize, (void**)&newThread->stack_base);
+            uint8_t *sb;
+            RVCMemoryPoolAllocate(0, memsize, (void**)&sb);
             newThread->entry = entry;
             newThread->param = param;
             newThread->memsize = memsize;
             newThread->tid = global_tid_nums;
+            newThread->stack_base = sb;
             *tid = global_tid_nums;
             newThread->state = RVCOS_THREAD_STATE_CREATED;
             newThread->priority = prio;
@@ -628,6 +633,7 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
             struct TCB* waiter = threadArray[waiterTID];
             // if the thread terminating is the thread that a waiter is waiting on
             if (waiter->wait_id == thread){
+                RVCWriteText1("removed\n", 8);
                 waiter->ret_val = returnval;
                 waiter->state = RVCOS_THREAD_STATE_READY;
                 enqueueThread(waiter);
@@ -676,12 +682,16 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
             currThread->state = RVCOS_THREAD_STATE_WAITING;
             currThread->wait_id = thread;
             insertRQ(waiterQ,currThread->tid);
+            RVCWriteText1("inserted\n", 9);
             schedule();
             *returnref = (TThreadReturn)currThread->ret_val;
             return RVCOS_STATUS_SUCCESS;
         }
-        *returnref = (TThreadReturn)waitThread->ret_val; // not sure what this is for
-        return RVCOS_STATUS_SUCCESS;
+        else {
+            *returnref = (TThreadReturn)waitThread->ret_val; // not sure what this is for
+            return RVCOS_STATUS_SUCCESS;
+        }
+        
     }
     else{
         currThread->ticks = timeout;
@@ -734,9 +744,18 @@ void schedule(){
     if (scheduleQ->highSize != 0) {
         nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_HIGH);
     } else if (scheduleQ->norSize != 0) {
+        
         nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_NORMAL);
+        
+        
     } else if (scheduleQ->lowSize != 0) {
+        // RVCWriteText1("Schedule thread: ", 17);
+        RVCWriteText1("            ", 12);
         nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_LOW);
+        // char buff[1];
+        // uint32_t id = nextTid;
+        // itoa(nextTid, buff, 10);
+        // WriteString(buff);
     } else {
         if(scheduleQ->size == 0){
             nextTid = 1;

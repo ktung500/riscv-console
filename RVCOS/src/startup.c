@@ -143,13 +143,14 @@ void video_interrupt_handler(void){
                 enqueueThread(thread);
             }
             if(thread->priority > curr->priority){
+                //RVCWriteText1("scheduling!\n", 12);
                 flag = 1;
             }
             
 	    }
         INTR_PEND_REG = 0x2;
         if(flag){
-                schedule();
+            schedule();
         }
         
     }
