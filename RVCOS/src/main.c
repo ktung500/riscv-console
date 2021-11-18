@@ -28,18 +28,10 @@ void ContextSwitch(volatile uint32_t **oldsp, volatile uint32_t *newsp);
 #define CART_STAT_REG (*(volatile uint32_t *)0x4000001C)
 #define CONTROLLER_STATUS_REG (*(volatile uint32_t*)0x40000018) // base address of the Multi-Button Controller Status Register
 volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken from riscv-example, main code
-//struct TCB* waiter[256];
-//struct TCB* sleepers[256];
 volatile int numSleepers;
 volatile int sleeperCursor;
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
 volatile int num_mutex = 0;
-
-// int highPQ[256];
-// int highFront = 0;
-// int highRear = -1;
-// int highSize = 0;
-
 struct TCB** threadArray;
 volatile int num_of_threads = 0;
 int threadArraySize = 256; // If it fills up, double the size
@@ -58,6 +50,16 @@ struct Mutex{
     int unlocked; // check if mutex can be acquired, == 1 is unlocked, == 0 is locked
     TThreadID holder; // id of thread thats holding
 } Mutex;
+
+typedef struct Node{
+    struct node *next;
+} Node, *NodeRef;
+
+typedef struct MemAllocator{
+    int count;
+    int structureSize;
+    NodeRef firstFree;
+} MemAllocator, *MemAllocatorRef;
 
 struct ReadyQ* createReadyQ(int size){
     struct ReadyQ *Q;
@@ -831,8 +833,13 @@ TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef 
     if (base == NULL || size < 128) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
+    struct MemAllocator *alloc;
+    alloc->structureSize;
+    alloc->count = 0;
+    alloc->firstFree = NULL;
+    // Store base and size and create ID
     // Upon successful creation of the memory pool, RVCMemoryPoolCreate() will return 
-    // RVCOS_STATUS_SUCCESS.
+    return RVCOS_STATUS_SUCCESS;
 }
 
 TStatus RVCMemoryPoolDelete(TMemoryPoolID memory) {
