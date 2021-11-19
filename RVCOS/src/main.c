@@ -54,16 +54,112 @@ struct Mutex{
     TThreadID holder; // id of thread thats holding
 } Mutex;
 
-typedef struct Node{
-    struct node *next;
-} Node, *NodeRef;
+// Memory Pool Start -----------------------------------------------------------------------------------------------------------------------------
 
-typedef struct MemAllocator{
-    void* base;
+typedef struct FSSNode_TAG FSSNode, *FSSNodeRef;
+
+struct FSSNode_TAG{
+    struct FSSNode_TAG *next;
+};
+
+typedef struct{
     int count;
     int structureSize;
-    NodeRef firstFree;
-} MemAllocator, *MemAllocatorRef;
+    FSSNodeRef firstFree;
+} FSSAllocator, *FSSAllocatorRef;
+
+typedef struct{
+    int DSize;
+    void *DBase;
+} FreeChunk, *FreeChunkRef; 
+
+FSSAllocator FreeChunkAllocator;
+int SuspendAllocationOfFreeChunks = 0;
+FreeChunk InitialFreeChunks[5];
+
+FreeChunkRef AllocateFreeChunk(void);
+void DeallocateFreeChunk(FreeChunkRef chunk);
+
+void *MemoryAlloc(int size);
+
+void FSSAllocatorInit(FSSAllocatorRef alloc, int size);
+void *FSSAllocate(FSSAllocatorRef alloc);
+void FSSDeallocate(FSSAllocatorRef alloc, void *obj);
+
+// typedef struct FreeNode{
+//     struct node *next;
+//     uint8_t base;
+//     uint32_t size;
+// } FreeNode, *FreeNodeRef;
+
+// typedef struct MPCB{
+//     void* base;
+//     int count;
+//     int freeSize;
+//     FreeNodeRef firstFree;
+// } MemAllocator, *MemAllocatorRef;
+
+void *MemoryAlloc(int size){
+    printf("@line %d \n",__LINE__);
+    AllocateFreeChunk();
+    return malloc(size);
+}
+
+void FSSAllocatorInit(FSSAllocatorRef alloc, int size){
+    alloc->count = 0;
+    alloc->structureSize = size;
+    alloc->firstFree = NULL;
+}
+
+void *FSSAllocate(FSSAllocatorRef alloc){
+    if(!alloc->count){
+        alloc->firstFree = MemoryAlloc(alloc->structureSize * MIN_ALLOCATION_COUNT);
+        FSSNodeRef Current = alloc->firstFree;
+        for(int Index = 0; Index < MIN_ALLOCATION_COUNT; Index++){
+            if(Index + 1 < MIN_ALLOCATION_COUNT){
+                Current->next = (FSSNodeRef)((uint8_t *)Current + alloc->structureSize);
+                Current = Current->next;
+            }
+            else{
+                Current->next = NULL;
+            }
+        }
+        alloc->count = MIN_ALLOCATION_COUNT;
+    }
+    FSSNodeRef NewStruct = alloc->firstFree;
+    alloc->firstFree = alloc->firstFree->next;
+    alloc->count--;
+    return NewStruct;
+}
+
+void FSSDeallocate(FSSAllocatorRef alloc, void *obj){
+    FSSNodeRef OldStruct = (FSSNodeRef)obj;
+    alloc->count++;
+    OldStruct->next = alloc->firstFree;
+    alloc->firstFree = OldStruct;
+}
+
+FreeChunkRef AllocateFreeChunk(void){
+    if(3 > FreeChunkAllocator.count && !SuspendAllocationOfFreeChunks){
+        SuspendAllocationOfFreeChunks = 1;
+        printf("@line %d \n",__LINE__);
+        uint8_t *Ptr = MemoryAlloc(FreeChunkAllocator.structureSize * MIN_ALLOCATION_COUNT);
+        for(int Index = 0; Index < MIN_ALLOCATION_COUNT; Index++){
+            FSSDeallocate(&FreeChunkAllocator,Ptr + Index * FreeChunkAllocator.structureSize);
+        }
+        SuspendAllocationOfFreeChunks = 0;
+    }
+    return (FreeChunkRef)FSSAllocate(&FreeChunkAllocator);
+}
+
+void DeallocateFreeChunk(FreeChunkRef chunk){
+    FSSDeallocate(&FreeChunkAllocator,(void *)chunk);
+}
+
+
+
+// Memory Pool End ---------------------------------------------------------------------------------------------------------------------------------------
+
 
 struct ReadyQ* createReadyQ(int size){
     struct ReadyQ *Q;
@@ -838,10 +934,10 @@ TStatus RVCTickCount(TTickRef tickref) {
 }
 
 // from discussion11-05.c
-void *MemoryAlloc(int size){
-    AllocateFreeChunk();
-    return malloc(size);
-}
+// void *MemoryAlloc(int size){
+//     AllocateFreeChunk();
+//     return malloc(size);
+// }
 
 TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef memoryref) {
     if (base == NULL || size < 128) {
@@ -875,7 +971,12 @@ TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
     }
 }
 
+// allocate might call allocatefreechunk
 TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **pointer) {
+    if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
+        *pointer = (void *)malloc(size);
+        return RVCOS_STATUS_SUCCESS;
+    }
     if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
@@ -886,14 +987,15 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
         return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
     }
     else{
-        if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
-            *pointer = (void *)malloc(size);
-            return RVCOS_STATUS_SUCCESS;
-        }
-        else{
+        
+        // if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
+        //     *pointer = (void *)malloc(size);
+        //     return RVCOS_STATUS_SUCCESS;
+        // }
+        //else{
             
-            return RVCOS_STATUS_SUCCESS;
-        }
+        return RVCOS_STATUS_SUCCESS;
+        //}
     }
     //*pointer = (struct TCB*)malloc(size);
     //return RVCOS_STATUS_SUCCESS;
