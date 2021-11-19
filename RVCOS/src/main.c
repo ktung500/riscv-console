@@ -19,6 +19,7 @@ volatile uint32_t *saved_sp;
 uint32_t *app_global_p;
 #define MTIMECMP_LOW    (*((volatile uint32_t *)0x40000010))
 #define MTIMECMP_HIGH   (*((volatile uint32_t *)0x40000014))
+#define MIN_ALLOCATION_COUNT        0x40
 typedef void (*TFunctionPointer)(void);
 void enter_cartridge(void);
 uint32_t call_th_ent(void *param, TThreadEntry entry, uint32_t *gp);
@@ -35,6 +36,8 @@ volatile int num_mutex = 0;
 struct TCB** threadArray;
 volatile int num_of_threads = 0;
 int threadArraySize = 256; // If it fills up, double the size
+volatile int num_mem_pool = 0;
+struct MemAllocator** memPoolArray;
 
 struct ReadyQ{
     int* queue;
@@ -56,6 +59,7 @@ typedef struct Node{
 } Node, *NodeRef;
 
 typedef struct MemAllocator{
+    void* base;
     int count;
     int structureSize;
     NodeRef firstFree;
@@ -318,6 +322,10 @@ TStatus RVCInitialize(uint32_t *gp) {
     RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&mutexArray);
     for (int i = 0; i < 256; i++) {
         mutexArray[i] = NULL;
+    }
+    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&memPoolArray);
+    for (int i = 0; i < 256; i++) {
+        memPoolArray[i] = NULL;
     }
     struct TCB* mainThread;  // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
@@ -829,14 +837,24 @@ TStatus RVCTickCount(TTickRef tickref) {
     }
 }
 
+// from discussion11-05.c
+void *MemoryAlloc(int size){
+    AllocateFreeChunk();
+    return malloc(size);
+}
+
 TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef memoryref) {
     if (base == NULL || size < 128) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     struct MemAllocator *alloc;
-    alloc->structureSize;
+    alloc->structureSize = size;   // size of the memory pool, need to be decreased when allocating
+    alloc->base = base;
     alloc->count = 0;
     alloc->firstFree = NULL;
+    memPoolArray[num_mem_pool] = alloc;
+    *memoryref = num_mem_pool;
+    num_mem_pool++;
     // Store base and size and create ID
     // Upon successful creation of the memory pool, RVCMemoryPoolCreate() will return 
     return RVCOS_STATUS_SUCCESS;
@@ -861,9 +879,24 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
     if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-
-    *pointer = (struct TCB*)malloc(size);
-    return RVCOS_STATUS_SUCCESS;
+    else if (memPoolArray[memory] == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    else if(memPoolArray[memory]->structureSize < size){
+        return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
+    }
+    else{
+        if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
+            *pointer = (void *)malloc(size);
+            return RVCOS_STATUS_SUCCESS;
+        }
+        else{
+            
+            return RVCOS_STATUS_SUCCESS;
+        }
+    }
+    //*pointer = (struct TCB*)malloc(size);
+    //return RVCOS_STATUS_SUCCESS;
     // If the memory pool does not have sufficient memory to allocate the array of size bytes, 
     // RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES is returned. 
 }
