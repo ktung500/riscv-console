@@ -955,8 +955,8 @@ TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef 
     memPool->allocList = NULL;
     memPool->firstFree = NULL;
     memPool->mpid = global_mpid_nums;
-    global_mpid_nums++;
     memPoolArray[global_mpid_nums] = memPool;
+    global_mpid_nums++;
 
     // alloc->structureSize = size;   // size of the memory pool, need to be decreased when allocating
     // alloc->base = base;
@@ -1000,6 +1000,10 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
     }
     else if (memPoolArray[memory] == NULL){
         RVCWriteText1("invalid id\n", 11);
+        char buff[20];
+        uint32_t id = memory;
+        itoa(id, buff, 10);
+        WriteString(buff);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(memPoolArray[memory]->freeSize < size){
@@ -1024,21 +1028,13 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
                     newnode->size = alloc_size;
                     cur->base += alloc_size;
                     cur->size -= alloc_size;
-                    // add newn ode to alloc
+                    // add newnode to alloc
                     // return newnode->base
                 }
             }
             cur = cur->next;
-        }
-
-        // if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
-        //     *pointer = (void *)malloc(size);
-        //     return RVCOS_STATUS_SUCCESS;
-        // }
-        //else{
-            
+        }   
         return RVCOS_STATUS_SUCCESS;
-        //}
     }
     //*pointer = (struct TCB*)malloc(size);
     //return RVCOS_STATUS_SUCCESS;
