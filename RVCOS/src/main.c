@@ -1295,6 +1295,10 @@ TStatus RVCMutexRelease(TMutexID mutex) {
 
 
 int main() {
+    // see piazza post 981
+    InitPointers(); // not sure if these go in main but or RVCInitialize, but these were in main in the discussion code
+    memcpy((void *)BackgroundPalettes[0],RVCOPaletteDefaultColors,256 * sizeof(SColor)); // loads the colors from DefaultPalette.c in Background Palette 0 
+    memcpy((void *)SpritePalettes[0],RVCOPaletteDefaultColors,256 * sizeof(SColor)); // load the colors from DefaultPalette.c in Sprite Palette 0
     saved_sp = &CART_STAT_REG; // was used to see how the compiler would assign the save_sp so we could
     while(1){                      // do it in assembly in the enter_cartridge function
         if(CART_STAT_REG & 0x1){
