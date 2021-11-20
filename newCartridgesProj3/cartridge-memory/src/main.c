@@ -43,7 +43,8 @@ int main() {
     TMemorySize AvailableSpace;
     
     WriteString("Allocating pool: ");
-    if(RVCOS_STATUS_SUCCESS != RVCMemoryAllocate(256, (void **)&MemoryBase)){
+   
+    if(RVCOS_STATUS_SUCCESS != RVCMemoryPoolAllocate(0, 256, (void **)&MemoryBase)){
         WriteString("Failed to allocate memory pool\n");
         return -1;
     }

@@ -37,7 +37,8 @@ struct TCB** threadArray;
 volatile int num_of_threads = 0;
 int threadArraySize = 256; // If it fills up, double the size
 volatile int num_mem_pool = 0;
-struct MemAllocator** memPoolArray;
+struct MPCB** memPoolArray;
+volatile TMemoryPoolID global_mpid_nums = 1; // system memory pool is 0
 
 struct ReadyQ{
     int* queue;
@@ -86,21 +87,24 @@ void FSSAllocatorInit(FSSAllocatorRef alloc, int size);
 void *FSSAllocate(FSSAllocatorRef alloc);
 void FSSDeallocate(FSSAllocatorRef alloc, void *obj);
 
-// typedef struct FreeNode{
-//     struct node *next;
-//     uint8_t base;
-//     uint32_t size;
-// } FreeNode, *FreeNodeRef;
+typedef struct FreeNode_TAG FreeNode, *FreeNodeRef;
 
-// typedef struct MPCB{
-//     void* base;
-//     int count;
-//     int freeSize;
-//     FreeNodeRef firstFree;
-// } MemAllocator, *MemAllocatorRef;
+struct FreeNode_TAG{
+    struct FreeNode_TAG *next;
+    uint8_t base;
+    uint32_t size;
+};
+
+struct MPCB{
+    TMemoryPoolID mpid;
+    uint8_t base;
+    uint32_t size;
+    uint32_t freeSize;
+    FreeNodeRef firstFree;
+    FreeNodeRef allocList;
+};
 
 void *MemoryAlloc(int size){
-    printf("@line %d \n",__LINE__);
     AllocateFreeChunk();
     return malloc(size);
 }
@@ -142,7 +146,6 @@ void FSSDeallocate(FSSAllocatorRef alloc, void *obj){
 FreeChunkRef AllocateFreeChunk(void){
     if(3 > FreeChunkAllocator.count && !SuspendAllocationOfFreeChunks){
         SuspendAllocationOfFreeChunks = 1;
-        printf("@line %d \n",__LINE__);
         uint8_t *Ptr = MemoryAlloc(FreeChunkAllocator.structureSize * MIN_ALLOCATION_COUNT);
         for(int Index = 0; Index < MIN_ALLOCATION_COUNT; Index++){
             FSSDeallocate(&FreeChunkAllocator,Ptr + Index * FreeChunkAllocator.structureSize);
@@ -425,6 +428,9 @@ TStatus RVCInitialize(uint32_t *gp) {
     }
     struct TCB* mainThread;  // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
+    // FSSAllocator TCBPool;
+    // FSSAllocatorInit(&TCBPool, sizeof(struct TCB));
+    
     mainThread->tid = 0;
     mainThread->state = RVCOS_THREAD_STATE_RUNNING;
     mainThread->priority = RVCOS_THREAD_PRIORITY_NORMAL;
@@ -715,25 +721,25 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     if (currThread->state == RVCOS_THREAD_STATE_DEAD || currThread->state == RVCOS_THREAD_STATE_CREATED){
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
-    WriteString("\nthread terminating: ");
-    char buff[20];
-    uint32_t id = thread;
-    itoa(id, buff, 10);
-    WriteString(buff);
-    WriteString("\nthread retval: ");
-    char buff1[20];
-    uint32_t id1 = returnval;
-    itoa(id1, buff1, 10);
-    WriteString(buff1);
+    // WriteString("\nthread terminating: ");
+    // char buff[20];
+    // uint32_t id = thread;
+    // itoa(id, buff, 10);
+    // WriteString(buff);
+    // WriteString("\nthread retval: ");
+    // char buff1[20];
+    // uint32_t id1 = returnval;
+    // itoa(id1, buff1, 10);
+    // WriteString(buff1);
     //WriteString("\n");
     currThread->state = RVCOS_THREAD_STATE_DEAD;
     currThread->ret_val = returnval;
-     WriteString("\nthread state: ");
-    char buff2[20];
-    uint32_t id2 = currThread->state;
-    itoa(id2, buff2, 10);
-    WriteString(buff2);
-    WriteString("\n");
+    //  WriteString("\nthread state: ");
+    // char buff2[20];
+    // uint32_t id2 = currThread->state;
+    // itoa(id2, buff2, 10);
+    // WriteString(buff2);
+    // WriteString("\n");
     // if there are waiters
     if(waiterQ->size != 0){
         int flag = 0;
@@ -742,7 +748,6 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
             struct TCB* waiter = threadArray[waiterTID];
             // if the thread terminating is the thread that a waiter is waiting on
             if (waiter->wait_id == thread){
-                RVCWriteText1("removed\n", 8);
                 waiter->ret_val = returnval;
                 waiter->state = RVCOS_THREAD_STATE_READY;
                 enqueueThread(waiter);
@@ -791,7 +796,6 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
             currThread->state = RVCOS_THREAD_STATE_WAITING;
             currThread->wait_id = thread;
             insertRQ(waiterQ,currThread->tid);
-            RVCWriteText1("inserted\n", 9);
             schedule();
             *returnref = (TThreadReturn)currThread->ret_val;
             return RVCOS_STATUS_SUCCESS;
@@ -943,16 +947,26 @@ TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef 
     if (base == NULL || size < 128) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-    struct MemAllocator *alloc;
-    alloc->structureSize = size;   // size of the memory pool, need to be decreased when allocating
-    alloc->base = base;
-    alloc->count = 0;
-    alloc->firstFree = NULL;
-    memPoolArray[num_mem_pool] = alloc;
-    *memoryref = num_mem_pool;
-    num_mem_pool++;
+    // struct MemAllocator *alloc;]
+    struct MPCB *memPool;
+    memPool->base = base;
+    memPool->size = size;
+    memPool->freeSize = size;
+    memPool->allocList = NULL;
+    memPool->firstFree = NULL;
+    memPool->mpid = global_mpid_nums;
+    global_mpid_nums++;
+    memPoolArray[global_mpid_nums] = memPool;
+
+    // alloc->structureSize = size;   // size of the memory pool, need to be decreased when allocating
+    // alloc->base = base;
+    // alloc->count = 0;
+    // alloc->firstFree = NULL;
+    // memPoolArray[num_mem_pool] = alloc;
+    // *memoryref = num_mem_pool;
+    // num_mem_pool++;
     // Store base and size and create ID
-    // Upon successful creation of the memory pool, RVCMemoryPoolCreate() will return 
+    // Upon successful creation of the memory pool, RVCMemoryPoolCreate() will return
     return RVCOS_STATUS_SUCCESS;
 }
 
@@ -969,6 +983,8 @@ TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
     if (bytesleft == NULL) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
+    *bytesleft = memPoolArray[memory]->freeSize;
+    return RVCOS_STATUS_SUCCESS;
 }
 
 // allocate might call allocatefreechunk
@@ -978,16 +994,43 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
         return RVCOS_STATUS_SUCCESS;
     }
     if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
+        RVCWriteText1("invalid pool\n", 13);
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+
     }
     else if (memPoolArray[memory] == NULL){
+        RVCWriteText1("invalid id\n", 11);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
-    else if(memPoolArray[memory]->structureSize < size){
+    else if(memPoolArray[memory]->freeSize < size){
+        RVCWriteText1("no space\n", 9);
         return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
     }
     else{
-        
+        struct MPCB *currPool = memPoolArray[memory];
+        uint32_t alloc_size = ((size + 63)/64) * 64;
+        FreeNodeRef cur = currPool->firstFree;
+        while(cur) {
+            if (alloc_size <= cur->size) {
+                if (alloc_size == cur->size) {
+                    // pull off freelist
+                    // move cur
+                    // alloc list
+                    // return ptr cur->base
+                }
+                else {
+                    FreeNode *newnode;
+                    newnode->base = cur->base;
+                    newnode->size = alloc_size;
+                    cur->base += alloc_size;
+                    cur->size -= alloc_size;
+                    // add newn ode to alloc
+                    // return newnode->base
+                }
+            }
+            cur = cur->next;
+        }
+
         // if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
         //     *pointer = (void *)malloc(size);
         //     return RVCOS_STATUS_SUCCESS;
@@ -1206,11 +1249,11 @@ uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint3
         case 0x0A: return RVCTickCount((void *)p1);
         case 0x0B: return RVCWriteText((void *)p1, p2);
         case 0x0C: return RVCReadController((void *)p1);
-        // case 0x0D: return RVCMemoryPoolCreate(p1, p2, p3);
-        // case 0x0E: return RVCMemoryPoolDelete(p1);
-        // case 0x0F: return RVCMemoryPoolQuery(p1, p2);
-        // //case 0x10: return RVCMemoryPoolAllocate(p1, p2, p3);
-        // case 0x11: return RVCMemoryPoolDeallocate(p1, p2);
+        case 0x0D: return RVCMemoryPoolCreate(p1, p2, p3);
+        case 0x0E: return RVCMemoryPoolDelete(p1);
+        case 0x0F: return RVCMemoryPoolQuery(p1, p2);
+        case 0x10: return RVCMemoryPoolAllocate(p1, p2, p3);
+        case 0x11: return RVCMemoryPoolDeallocate(p1, p2);
         case 0x12: return RVCMutexCreate((void *)p1);
         case 0x13: return RVCMutexDelete((void *)p1);
         case 0x14: return RVCMutexQuery((void *)p1, (void *)p2);
