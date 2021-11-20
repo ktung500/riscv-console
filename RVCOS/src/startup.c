@@ -159,7 +159,7 @@ void video_interrupt_handler(void){
 void timer_interrupt_handler()
 {
     uint64_t NewCompare = (((uint64_t)MTIMECMP_HIGH)<<32) | MTIMECMP_LOW;
-    NewCompare += 2;
+    NewCompare += 5;
     MTIMECMP_HIGH = NewCompare>>32;
     MTIMECMP_LOW = NewCompare;
     tick_count++;

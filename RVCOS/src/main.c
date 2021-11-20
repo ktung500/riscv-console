@@ -100,6 +100,23 @@ volatile SSmallSpriteControl *SmallSpriteControls = (volatile SSmallSpriteContro
 volatile SVideoControllerMode *ModeControl = (volatile SVideoControllerMode *)0x500FF414;
 extern SColor RVCOPaletteDefaultColors[];
 
+// initiallizing the pointers for background palettes, sprite palettes, background data, large sprite data, and small sprite data
+void InitPointers(void){
+    for(int Index = 0; Index < 4; Index++){
+        BackgroundPalettes[Index] = (volatile SColor *)(0x500FC000 + 256 * sizeof(SColor) * Index);
+        SpritePalettes[Index] = (volatile SColor *)(0x500FD000 + 256 * sizeof(SColor) * Index);
+    }
+    for(int Index = 0; Index < 5; Index++){
+        BackgroundData[Index] = (volatile uint8_t *)(0x50000000 + 512 * 288 * Index);
+    }
+    for(int Index = 0; Index < 64; Index++){
+        LargeSpriteData[Index] = (volatile uint8_t *)(0x500B4000 + 64 * 64 * Index);
+    }
+    for(int Index = 0; Index < 128; Index++){
+        SmallSpriteData[Index] = (volatile uint8_t *)(0x500F4000 + 16 * 16 * Index);
+    }
+}
+
 // Video Graphic End ---------------------------------------------------------------------------------------------------------------------------------------
 
 struct ReadyQ{
