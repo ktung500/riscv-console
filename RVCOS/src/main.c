@@ -43,12 +43,12 @@ volatile TMemoryPoolID global_mpid_nums = 1; // system memory pool is 0
 // Video Graphic Start -----------------------------------------------------------------------------------------------------------------------------
 // all structs and globals taken from discussion-11-19
 // struct for color
-typedef struct{
+/*typedef struct{
     uint32_t DBlue : 8;
     uint32_t DGreen : 8;
     uint32_t DRed : 8;
     uint32_t DAlpha : 8;
-} SColor, *SColorRef;
+} SColor, *SColorRef;*/   // already defined in RVCOS.h
 
 // struct for the controls of a large sprite
 typedef struct {
@@ -99,6 +99,7 @@ volatile SLargeSpriteControl *LargeSpriteControls = (volatile SLargeSpriteContro
 volatile SSmallSpriteControl *SmallSpriteControls = (volatile SSmallSpriteControl *)0x500FF214;
 volatile SVideoControllerMode *ModeControl = (volatile SVideoControllerMode *)0x500FF414;
 extern SColor RVCOPaletteDefaultColors[];
+void InitPointers(void);
 
 // initiallizing the pointers for background palettes, sprite palettes, background data, large sprite data, and small sprite data
 void InitPointers(void){
@@ -562,10 +563,10 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
 
 
 TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
-    if (buffer == NULL){
-        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
-    }
-    else{
+    //if (buffer == NULL){
+    //   return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    //}
+    //else{
         //write out writesize characters to the location specified by buffer
         if (cursor < 2304) { // 2304 = 64 columns x 36 rows
 
@@ -671,7 +672,7 @@ TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
         // if there are errors try casting (int)
         return RVCOS_STATUS_SUCCESS;
     }
-}
+//}
 
 // taken from CartridgeThreadWait
 void WriteString(const char *str){
@@ -1293,6 +1294,79 @@ TStatus RVCMutexRelease(TMutexID mutex) {
     }
 }
 
+TStatus RVCChangeVideoMode(TVideoMode mode){
+    if (mode != RVCOS_VIDEO_MODE_TEXT || mode != RVCOS_VIDEO_MODE_GRAPHICS){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    ModeControl->DMode = mode; // changes the mode, and then blocks til next video refresh
+    struct TCB* currentThread = threadArray[get_tp()];
+    currentThread->buffer = NULL;
+    currentThread->writesize = 0; // this will signal that its a video mode change instead of blocking for a write
+    currentThread->state = RVCOS_THREAD_STATE_WAITING;
+    insertRQ(writerQ, currentThread->tid);
+    // Insert current before scheduling
+    schedule();
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
+    if(type != RVCOS_GRAPHIC_TYPE_FULL || type != RVCOS_GRAPHIC_TYPE_LARGE || type != RVCOS_GRAPHIC_TYPE_SMALL){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    else if(gidref == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    else{
+        return RVCOS_STATUS_SUCCESS;
+    }
+}
+
+TStatus RVCGraphicDelete(TGraphicID gid){
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCGraphicActivate(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteID pid){
+  /*  Upon successful activation of the background buffer, RVCGraphicActivate() returns 
+    RVCOS_STATUS_SUCCESS. If the graphic buffer identifier gid does not exist or if the palette 
+    identifier pid does not exist, then RVCOS_STATUS_ERROR_INVALID_ID is returned. If pos is 
+    NULL, dim is NULL for a non-FULL graphic, or if pos or dim non-NULL but are out of range for 
+    the  type  of  graphic  then  RVCOS_STATUS_ERROR_INVALID_PARAMETER  is  returned.  If 
+    there are insufficient video hardware resources to activate the graphic buffer, then 
+    RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES  is  returned.  If  the  graphic  buffer 
+    has a pending activation, then RVCOS_STATUS_ERROR_INVALID_STATE is returned*/
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCGraphicDeactivate(TGraphicID gid){
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteIndex *src, uint32_t srcwidth){
+    /*Upon successful activation of the background buffer, RVCGraphicDraw() returns 
+    RVCOS_STATUS_SUCCESS. If the graphic buffer identifier gid does not exist, then 
+    RVCOS_STATUS_ERROR_INVALID_ID  is  returned.  If  pos  is  NULL,  dim  is  NULL,  src  is 
+    NULL or srcwidth is less than DWidth in dim, then 
+    RVCOS_STATUS_ERROR_INVALID_PARAMETER is returned. If the buffer has been 
+    activated, but the activation has not completed (the upcall has not been invoked), then 
+    RVCOS_STATUS_ERROR_INVALID_STATE is returned. */
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCPaletteCreate(TPaletteIDRef pidref){
+    if (pidref == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCPaletteDelete(TPaletteID pid){
+    return RVCOS_STATUS_SUCCESS;
+}
+
+TStatus RVCPaletteUpdate(TPaletteID pid, SColorRef cols, TPaletteIndex offset, uint32_t count){
+    return RVCOS_STATUS_SUCCESS;
+}
+
 
 int main() {
     // see piazza post 981
@@ -1338,7 +1412,14 @@ uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint3
         case 0x14: return RVCMutexQuery((void *)p1, (void *)p2);
         case 0x15: return RVCMutexAcquire((void *)p1, (void *)p2);
         case 0x16: return RVCMutexRelease ((void *)p1);
-
+        /*case 0x19: return RVCGraphicCreate (p1,p2);
+        case 0x1A: return RVCGraphicDelete (p1);
+        case 0x1B: return RVCGraphicActivate(p1,p2,p3,p4);
+        case 0x1C: return RVCGraphicDeactivate(p1);
+        case 0x1D: return RVCGraphicDraw(p1,p2,p3,p4,p5);
+        case 0x1E: return RVCPaletteCreate(p1);
+        case 0x1F: return RVCPaletteDelete(p1);
+        case 0x20: return RVCPaletteUpdate(p1,p2,p3,p4);*/
     }
     return code + 1;
 }

@@ -136,7 +136,9 @@ void video_interrupt_handler(void){
 	    while(writerQ->size){
             int threadTID = removeRQ(writerQ);
             struct TCB* thread = threadArray[threadTID];
-		    RVCWriteText1(thread->buffer, thread->writesize);
+            if(thread->writesize != 0){
+                RVCWriteText1(thread->buffer, thread->writesize);
+            }
             if(thread->state != RVCOS_THREAD_STATE_DEAD){
                 thread->state = RVCOS_THREAD_STATE_READY;
                 thread->buffer = NULL;
