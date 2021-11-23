@@ -40,7 +40,15 @@ volatile int num_mem_pool = 0;
 struct MPCB** memPoolArray;
 volatile TMemoryPoolID global_mpid_nums = 1; // system memory pool is 0
 TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize);
+struct GCB** graphicBufferArray;
+volatile TGraphicID global_gid_nums = 0;
 // Video Graphic Start -----------------------------------------------------------------------------------------------------------------------------
+
+struct GCB{
+    TGraphicID gid;
+    TGraphicType type;
+    int state;
+} ;
 // all structs and globals taken from discussion-11-19
 // struct for color
 /*typedef struct{
@@ -171,7 +179,7 @@ typedef struct FreeNode_TAG FreeNode, *FreeNodeRef;
 
 struct FreeNode_TAG{
     struct FreeNode_TAG *next;
-    struct FreeNode_TAG *prev;
+    //struct FreeNode_TAG *prev;
     uint8_t base;
     uint32_t size;
 };
@@ -1050,6 +1058,11 @@ TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef 
     //DeallocateFreeChunk(&InitialFreeChunks[0]);
 
     memPool->firstChunk = AllocateFreeChunk();
+    memPool->firstChunk->base = base;
+    memPool->firstChunk->size = size;
+    memPool->firstFree = memPool->firstChunk;
+    memPool->firstFree->base = base;
+    memPool->firstFree->size = size;
     //memPool->firstFree = AllocateFreeChunk();
     // memPool->firstFree->size = size;
     // memPool->firstFree->base = base;
@@ -1057,6 +1070,7 @@ TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef 
     memPool->allocList = NULL;
     memPool->mpid = global_mpid_nums;
     memPoolArray[global_mpid_nums] = memPool;
+    *memoryref = global_mpid_nums;
     global_mpid_nums++;
 
     // alloc->structureSize = size;   // size of the memory pool, need to be decreased when allocating
@@ -1112,6 +1126,7 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
         struct MPCB *currPool = memPoolArray[memory];
         uint32_t alloc_size = ((size + 63)/64) * 64;
         FreeNodeRef cur = currPool->firstFree;
+        //FreeNodeRef curFree = currPool->firstFree;
         FreeNodeRef prev;
         while(cur) {
             // if (alloc_size > cur->size) {
@@ -1355,6 +1370,11 @@ TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     else{
+        struct GCB* newGraphic;
+        newGraphic->type = type;
+        newGraphic->gid = global_gid_nums;
+        graphicBufferArray[global_gid_nums] = newGraphic;
+        *gidref = global_gid_nums;
         return RVCOS_STATUS_SUCCESS;
     }
 }
