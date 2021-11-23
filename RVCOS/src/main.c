@@ -3,11 +3,7 @@
 #include <string.h>
 #include "RVCOS.h"
 
-// QUESTIONS???
-// How to change threadarray to dynamic allocation? (It holds all the TCB's)
-// How to dynamically do queues? (Do I use realloc)
-// How to check if in writetext if it is VT-100 sequence? (Do I first check: '0x1B'?)
-// 
+
 //#define DEBUG(str)    WriteString2((str),strlen(str))
 
 
@@ -212,12 +208,8 @@ void FSSAllocatorInit(FSSAllocatorRef alloc, int size){
 }
 
 void *FSSAllocate(FSSAllocatorRef alloc){
-    //RVCWriteText1("FSS allocate\n", 13);
     if(!alloc->count){ // If allocator count is 0 or NULL
-        //RVCWriteText1("FSS memAlloc\n", 13);
-        // alloc->count = MIN_ALLOCATION_COUNT;
         alloc->firstFree = MemoryAlloc(alloc->structureSize * MIN_ALLOCATION_COUNT); // set first free of allocator
-        //RVCWriteText1("Back from memAlloc\n", 19);
         FreeChunkRef Current = alloc->firstFree;
         for(int Index = 0; Index < MIN_ALLOCATION_COUNT; Index++){
             if(Index + 1 < MIN_ALLOCATION_COUNT){
@@ -228,14 +220,11 @@ void *FSSAllocate(FSSAllocatorRef alloc){
                 Current->next = NULL;
             }
         }
-        //RVCWriteText1("FSS count\n", 10);
         alloc->count = MIN_ALLOCATION_COUNT;
     }
-    //RVCWriteText1("FSS alloc new struct\n", 21);
     FreeChunkRef NewStruct = alloc->firstFree;
     alloc->firstFree = alloc->firstFree->next;
     alloc->count--;
-    //RVCWriteText1("FSS return new struct\n", 22);
     return NewStruct;
 }
 
@@ -247,18 +236,14 @@ void FSSDeallocate(FSSAllocatorRef alloc, void *obj){
 }
 
 FreeChunkRef AllocateFreeChunk(void){
-   //RVCWriteText1("alloc free chunk\n", 17);
     if(3 > FreeChunkAllocator.count && !SuspendAllocationOfFreeChunks){
-        //RVCWriteText1("if statement\n", 13);
         SuspendAllocationOfFreeChunks = 1;
-        //RVCWriteText1("Enter mem alloc\n", 16);
         uint8_t *Ptr = MemoryAlloc(FreeChunkAllocator.structureSize * MIN_ALLOCATION_COUNT);
         for(int Index = 0; Index < MIN_ALLOCATION_COUNT; Index++){
             FSSDeallocate(&FreeChunkAllocator,Ptr + Index * FreeChunkAllocator.structureSize);
         }
         SuspendAllocationOfFreeChunks = 0;
     }
-    //RVCWriteText1("else statement\n", 15);
     return (FreeChunkRef)FSSAllocate(&FreeChunkAllocator);
 }
 
@@ -351,7 +336,6 @@ struct PrioQ* createQueue(int maxSize)
 }
 
 void insertRQ(struct ReadyQ *Q, int tid){
-    //RVCWriteText("ins waiter\n", 11);
      if(Q->size != 256) {
             if(Q->rear == 255) {
                 Q->rear = -1;
@@ -363,7 +347,6 @@ void insertRQ(struct ReadyQ *Q, int tid){
 }
 
 int removeRQ(struct ReadyQ *Q){
-    //RVCWriteText("rem waiter\n", 11);
     int data = -1;
     if (Q->size > 0) {
             data = Q->queue[Q->front++];
@@ -386,7 +369,6 @@ void insert(struct PrioQ *Q, int data, TThreadPriority priority) {
 
             Q->highPQ[++(Q->highRear)] = data;
             Q->highSize++;
-            //RVCWriteText("Ins high\n", 9);
         }
     } else if (priority == RVCOS_THREAD_PRIORITY_NORMAL){
         if(Q->norSize != 256) {
@@ -396,7 +378,6 @@ void insert(struct PrioQ *Q, int data, TThreadPriority priority) {
 
             Q->norPQ[++(Q->norRear)] = data;
             Q->norSize++;
-            //RVCWriteText("Ins nor\n", 8);
         }
     } else if (priority == RVCOS_THREAD_PRIORITY_LOW){
         if(Q->lowSize != 256) {
@@ -406,7 +387,6 @@ void insert(struct PrioQ *Q, int data, TThreadPriority priority) {
 
             Q->lowPQ[++(Q->lowRear)] = data;
             Q->lowSize++;
-            //RVCWriteText("Ins low\n", 8);
         }
     }
 }
@@ -516,7 +496,6 @@ uint32_t *init_Stack(uint32_t* sp, TThreadEntry function, uint32_t param, uint32
 }
 
 TThreadEntry idle(){
-    //RVCWriteText("idle\n", 5);
     asm volatile ("csrw mie, %0" : : "r"(0x888));   // Enable all interrupt soruces: csr_write_mie(0x888);
     asm volatile ("csrsi mstatus, 0x8");            // Global interrupt enable: csr_enable_interrupts()
     while(1);
@@ -633,17 +612,16 @@ TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
 
             for (int i = 0; i < (int)writesize; i++) {
                 char c = buffer[i];
-                //VIDEO_MEMORY[cursor] = ' ';
                 if (c == '\x1B') {
                     i++;
                     if (i > (int)writesize) {
-                        break;
+                        continue;
                     }
                     char c = buffer[i];
                     if (c == '[') {
                         i++;
                         if (i > (int)writesize) {
-                            break;
+                            continue;
                         }
                         char c = buffer[i];
                         if (c == 'A') {
@@ -667,53 +645,66 @@ TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
                             }
                         } else if (c == 'H') {
                             cursor = 0;
-                        } else if (c == '2') {
-                            i++;
-                            if (i > (int)writesize) {
-                                break;
-                            }
-                            char c = buffer[i];
-                            if (c == 'J') {
-                                // Erase screen (zero out video_memory)
-                                memset(VIDEO_MEMORY, 0, 2304);
-                            }
-                        } else {
+                        } else if (isdigit(c)){
+                            int skip = 0;
                             int ln = (int)c - '0';
-                            i++;
-                            if (i > (int)writesize) {
-                                break;
+                            if (c == '2') {
+                                skip = 1;
+                                i++;
+                                c = buffer[i];
+                                if (c == 'J') {
+                                    // Erase screen (zero out video_memory)
+                                    memset(VIDEO_MEMORY, 0, 2304);
+                                    continue;
+                                } else {
+                                    //VIDEO_MEMORY[50] = 'A';
+                                }
                             }
-                            c = buffer[i];
-                            if (c == ';') {
+                            //VIDEO_MEMORY[52] = '4';
+                            if (!skip) {
+                                i++;
+                                c = buffer[i];
+                            }
+                            // 2 digit line number
+                            if (isdigit(c)) {
+                                //VIDEO_MEMORY[52] = c;
+                                ln = ln * 10 + (int)c - '0';
                                 i++;
                                 if (i > (int)writesize) {
                                     break;
+                                }
+                                c = buffer[i];
+                            }
+                            // problem if H or ln is more than 1 char
+                            if (c == ';') {
+                                //VIDEO_MEMORY[54] = 'B';
+                                i++;
+                                if (i > (int)writesize) {
+                                    continue;
                                 }
                                 c = buffer[i];
                                 int col = (int)c - '0';
                                 i++;
                                 if (i > (int)writesize) {
-                                    break;
+                                    continue;
                                 }
                                 c = buffer[i];
+                                // 2 digit column number
+                                if (isdigit(c)) {
+                                    col = col * 10 + (int)c - '0';
+                                    i++;
+                                    c = buffer[i];
+                                }
                                 if (c == 'H') {
-                                    // cursor = 65;
-                                    // VIDEO_MEMORY[cursor] = ln;
-                                    // cursor ++;
-                                    // VIDEO_MEMORY[cursor] = col;
-                                    // cursor ++;
                                     cursor = (64 * ln) + col;
-                                    // cursor = 65;
                                 }
                             }
                         }
-                            // erase screen, don't move cursor
                     }
                 }
                 else if (c == '\n') {
                     cursor += 0x40;
                     cursor = cursor & ~0x3F;
-                    //VIDEO_MEMORY[cursor] = c;
                     if (cursor >= 2304) {
                         memmove(VIDEO_MEMORY, VIDEO_MEMORY + 0x40, 64*35);
                         memset(VIDEO_MEMORY + 64*35, 0, 64);
@@ -721,14 +712,11 @@ TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
                     }
                 } else if(c == '\b') {
                     cursor -= 1;
-                    //VIDEO_MEMORY[cursor] = c;
                 } else {
                     VIDEO_MEMORY[cursor] = c;
                     cursor++;
                 }
             }
-            //VIDEO_MEMORY[global] = *buffer;
-            //global = global + writesize;
         }
         // if there are errors try casting (int)
         return RVCOS_STATUS_SUCCESS;
@@ -862,26 +850,9 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     if (currThread->state == RVCOS_THREAD_STATE_DEAD || currThread->state == RVCOS_THREAD_STATE_CREATED){
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
-    // WriteString("\nthread terminating: ");
-    // char buff[20];
-    // uint32_t id = thread;
-    // itoa(id, buff, 10);
-    // WriteString(buff);
-    // WriteString("\nthread retval: ");
-    // char buff1[20];
-    // uint32_t id1 = returnval;
-    // itoa(id1, buff1, 10);
-    // WriteString(buff1);
-    //WriteString("\n");
     currThread->state = RVCOS_THREAD_STATE_DEAD;
     currThread->ret_val = returnval;
-    //  WriteString("\nthread state: ");
-    // char buff2[20];
-    // uint32_t id2 = currThread->state;
-    // itoa(id2, buff2, 10);
-    // WriteString(buff2);
-    // WriteString("\n");
-    // if there are waiters
+
     if(waiterQ->size != 0){
         int flag = 0;
         for(int i = 0; i < waiterQ->size; i++){
@@ -906,7 +877,6 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     }
     //If the thread terminating is the current running thread, then you will definitely need to schedule.
     if(threadArray[get_tp()] == currThread){
-        //RVCWriteText1("current thread dead\n",20);
         schedule();
     }
     return RVCOS_STATUS_SUCCESS;
@@ -1004,31 +974,19 @@ void schedule(){
         nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_NORMAL);
 
     } else if (scheduleQ->lowSize != 0) {
-        // RVCWriteText1("Schedule thread: ", 17);
-        //RVCWriteText1("           ", 11);
         nextTid = removeData(scheduleQ, RVCOS_THREAD_PRIORITY_LOW);
-        // char buff[1];
-        // uint32_t id = nextTid;
-        // itoa(nextTid, buff, 10);
-        // WriteString(buff);
     } else {
         nextTid = 1;
     }
     nextT = threadArray[nextTid];
     if(current->tid != nextTid){
         nextT->state = RVCOS_THREAD_STATE_RUNNING;
-        // if(current->state != RVCOS_THREAD_STATE_DEAD && current->state != RVCOS_THREAD_STATE_WAITING && nextT->state != RVCOS_THREAD_STATE_DEAD){
-        //     current->state = RVCOS_THREAD_STATE_READY;
-        //     //enqueueThread(current);
-        // }
         
         ContextSwitch((void *)&current->sp, threadArray[nextTid]->sp);
         
     }
     else{
         current->state = RVCOS_THREAD_STATE_RUNNING;
-        //nextT->state = RVCOS_THREAD_STATE_READY;
-        // enqueueThread(nextT);
     }
 
 }
@@ -1095,27 +1053,14 @@ TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef 
     memPool->freeSize = size;
 
     memPool->firstFree = AllocateFreeChunk();
-    //RVCWriteText1("return from alloc chunk\n", 24);
     memPool->firstFree->size = size;
     memPool->firstFree->base = base;
     memPool->firstFree->next = NULL;
-    //RVCWriteText1("one\n", 4);
     memPool->allocList = NULL;
     memPool->mpid = global_mpid_nums;
-    //RVCWriteText1("finish create mpool\n", 19);
     memPoolArray[global_mpid_nums] = memPool;
     *memoryref = global_mpid_nums;
     global_mpid_nums++;
-    //RVCWriteText1("finish create\n", 14);
-    // alloc->structureSize = size;   // size of the memory pool, need to be decreased when allocating
-    // alloc->base = base;
-    // alloc->count = 0;
-    // alloc->firstFree = NULL;
-    // memPoolArray[num_mem_pool] = alloc;
-    // *memoryref = num_mem_pool;
-    // num_mem_pool++;
-    // Store base and size and create ID
-    // Upon successful creation of the memory pool, RVCMemoryPoolCreate() will return
     return RVCOS_STATUS_SUCCESS;
 }
 
@@ -1146,33 +1091,24 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
         return RVCOS_STATUS_SUCCESS;
     }
     if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
-        //RVCWriteText1("invalid pool\n", 13);
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
 
     }
     else if (memPoolArray[memory] == NULL){
-        //RVCWriteText1("invalid id\n", 11);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(memPoolArray[memory]->freeSize < size){
-        //RVCWriteText1("no space\n", 9);
         return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
     }
     else{
-        //RVCWriteText1("Mem pool allocate\n", 18);
         struct MPCB *currPool = memPoolArray[memory];
         uint32_t alloc_size = ((size + 63)/64) * 64;
         FreeChunkRef cur = currPool->firstFree;
         FreeChunkRef prev = NULL;
         while(cur) {
-            // if (alloc_size > cur->size) {
-            //     RVCWriteText1("too thicc\n", 10);
-            // }
             if (alloc_size <= cur->size) {
                 
                 if (alloc_size == cur->size) {
-                    //RVCWriteText1("exact size\n", 11);
-                    // pull off freelist
                     if (prev) {
                         prev->next = cur->next;
                     } else {
@@ -1186,9 +1122,7 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
 
                 }
                 else {
-                    //RVCWriteText1("small enough size\n", 18);
                     FreeChunk *newnode = MemoryAlloc(alloc_size);
-                    //RVCWriteText1("return in rvcallocate\n", 22);
                     newnode->base = cur->base;
                     newnode->size = alloc_size;
                     cur->base += alloc_size;
@@ -1198,16 +1132,13 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
                     newnode -> next = tmp;
                     currPool -> allocList = newnode;
                     *pointer = newnode->base; // return newnode->base
-                    //RVCWriteText1("return 2 in rvcallocate\n", 24);
                     return RVCOS_STATUS_SUCCESS;
                 }
             }
             prev = cur;
             cur = cur->next;
         }
-        //RVCWriteText1("failed\n", 7);
         return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
-
     }
 }
 
@@ -1336,9 +1267,7 @@ TStatus RVCMutexQuery(TMutexID mutex, TThreadIDRef ownerref) {
 }
 
 TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
-    //RVCWriteText("Acquire\n", 8);
     if (mutexArray[mutex] == NULL) {
-        //RVCWriteText("Inf Null\n", 9);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     struct Mutex *mx = mutexArray[mutex];
@@ -1351,7 +1280,6 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
     }
     // If timeout is specified as INFINITE, thread will block until mutex is acquired. 
     else if (timeout == RVCOS_TIMEOUT_INFINITE) {
-        //RVCWriteText("Infinite\n", 9);
         // check if mutex is unlocked
         if (mx->unlocked == 1){
             // mutex is now held by the current running thread
@@ -1359,7 +1287,6 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
             // lock mutex
             mx->unlocked = 0;
         }else{
-            //RVCWriteText("Inf Blocking\n", 13);
             // mutex is locked and the thread will block until mutex is unlocked
             currThread->state = RVCOS_THREAD_STATE_WAITING;
             // set currthread to waiting, add thread to pq, 
@@ -1400,18 +1327,13 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
 // the running thread. Release of the mutex may cause another higher priority thread to be scheduled 
 // if it acquires the newly released mutex.  
 TStatus RVCMutexRelease(TMutexID mutex) {
-    //RVCWriteText("Release\n", 8);
     if (mutexArray[mutex] == NULL) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(mutexArray[mutex]->holder != get_tp()){ 
-        //  If  the  mutex  specified  by  the  mutex identifier mutex does exist, but is not currently held by the running thread, 
-        // RVCOS_STATUS_ERROR_INVALID_STATE is returned. 
-        //RVCWriteText("Not running thr\n", 16);
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
-        //RVCWriteText("Else\n", 5);
         struct Mutex *mx = mutexArray[mutex];
         mx->holder = NULL;
         mx->unlocked = 1;
@@ -1424,7 +1346,6 @@ TStatus RVCMutexRelease(TMutexID mutex) {
         }
         // nothing in any of the pqs
         if(nextTid == -1){
-            //RVCWriteText("nothing\n",8);
             return RVCOS_STATUS_SUCCESS;
         }
         else{
@@ -1435,7 +1356,6 @@ TStatus RVCMutexRelease(TMutexID mutex) {
             mx->unlocked = 0;
             //schedule();
             if (nextThread->priority > threadArray[get_tp()]->priority){
-                //RVCWriteText("Schedule\n", 9);
                 threadArray[get_tp()]->state = RVCOS_THREAD_STATE_READY;
                 enqueueThread(threadArray[get_tp()]);
                 schedule();

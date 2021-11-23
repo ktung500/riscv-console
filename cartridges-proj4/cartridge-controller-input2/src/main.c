@@ -34,10 +34,7 @@ int main() {
             }
         }
         else if(ControllerStatus.DButton2){
-            if('~' > ArrayMove[5]){
-                ArrayMove[5]++;
-                RVCWriteText(ArrayMove+5,2);
-            }
+            RVCWriteText(" \b\x1b[2;1H", 10);
         }
         else if(ControllerStatus.DButton3){
             RVCWriteText("\x1B[2J",4);
