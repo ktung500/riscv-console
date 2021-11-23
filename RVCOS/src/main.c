@@ -145,22 +145,25 @@ struct Mutex{
 
 // Memory Pool Start -----------------------------------------------------------------------------------------------------------------------------
 
-typedef struct FSSNode_TAG FSSNode, *FSSNodeRef;
+// typedef struct FSSNode_TAG FSSNode, *FSSNodeRef;
 
-struct FSSNode_TAG{
-    struct FSSNode_TAG *next;
-};
+// struct FSSNode_TAG{
+//     struct FSSNode_TAG *next;
+// };
+
+
+typedef struct{
+    uint32_t size;
+    uint8_t *base;
+    struct FreeChunkRef *next;
+} FreeChunk, *FreeChunkRef; 
 
 typedef struct{
     int count;
     int structureSize;
-    FSSNodeRef firstFree;
+    FreeChunkRef *firstFree;
 } FSSAllocator, *FSSAllocatorRef;
 
-typedef struct{
-    int size;
-    void *base;
-} FreeChunk, *FreeChunkRef; 
 
 FSSAllocator FreeChunkAllocator;
 int SuspendAllocationOfFreeChunks = 0;
@@ -175,24 +178,22 @@ void FSSAllocatorInit(FSSAllocatorRef alloc, int size);
 void *FSSAllocate(FSSAllocatorRef alloc);
 void FSSDeallocate(FSSAllocatorRef alloc, void *obj);
 
-typedef struct FreeNode_TAG FreeNode, *FreeNodeRef;
+// typedef struct FreeNode_TAG FreeNode, *FreeNodeRef;
 
-struct FreeNode_TAG{
-    struct FreeNode_TAG *next;
-    //struct FreeNode_TAG *prev;
-    uint8_t base;
-    uint32_t size;
-};
+// struct FreeNode_TAG{
+//     struct FreeNode_TAG *next;
+//     //struct FreeNode_TAG *prev;
+//     uint8_t *base;
+//     uint32_t size;
+// };
 
 struct MPCB{
     TMemoryPoolID mpid;
     uint8_t base;
     uint32_t size;
     uint32_t freeSize;
-    FreeNodeRef firstFree;
-    FreeNodeRef allocList;
-
-    FreeChunkRef firstChunk;
+    FreeChunkRef firstFree;
+    FreeChunkRef allocList;
 };
 
 void *MemoryAlloc(int size){
@@ -213,10 +214,10 @@ void *FSSAllocate(FSSAllocatorRef alloc){
         // alloc->count = MIN_ALLOCATION_COUNT;
         alloc->firstFree = MemoryAlloc(alloc->structureSize * MIN_ALLOCATION_COUNT); // set first free of allocator
         //RVCWriteText1("Back from memAlloc\n", 19);
-        FSSNodeRef Current = alloc->firstFree;
+        FreeChunkRef Current = alloc->firstFree;
         for(int Index = 0; Index < MIN_ALLOCATION_COUNT; Index++){
             if(Index + 1 < MIN_ALLOCATION_COUNT){
-                Current->next = (FSSNodeRef)((uint8_t *)Current + alloc->structureSize);
+                Current->next = (FreeChunkRef)((uint8_t *)Current + alloc->structureSize);
                 Current = Current->next;
             }
             else{
@@ -227,14 +228,14 @@ void *FSSAllocate(FSSAllocatorRef alloc){
         alloc->count = MIN_ALLOCATION_COUNT;
     }
     //RVCWriteText1("FSS alloc new struct\n", 20);
-    FSSNodeRef NewStruct = alloc->firstFree;
+    FreeChunkRef NewStruct = alloc->firstFree;
     alloc->firstFree = alloc->firstFree->next;
     alloc->count--;
     return NewStruct;
 }
 
 void FSSDeallocate(FSSAllocatorRef alloc, void *obj){
-    FSSNodeRef OldStruct = (FSSNodeRef)obj;
+    FreeChunkRef OldStruct = (FreeChunkRef)obj;
     alloc->count++;
     OldStruct->next = alloc->firstFree;
     alloc->firstFree = OldStruct;
@@ -1054,19 +1055,10 @@ TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef 
     memPool->base = base;
     memPool->size = size;
     memPool->freeSize = size;
-    //FreeChunkRef Array[MIN_ALLOCATION_COUNT * 2];
-    //DeallocateFreeChunk(&InitialFreeChunks[0]);
 
-    memPool->firstChunk = AllocateFreeChunk();
-    memPool->firstChunk->base = base;
-    memPool->firstChunk->size = size;
-    memPool->firstFree = memPool->firstChunk;
-    memPool->firstFree->base = base;
+    memPool->firstFree = AllocateFreeChunk();
     memPool->firstFree->size = size;
-    //memPool->firstFree = AllocateFreeChunk();
-    // memPool->firstFree->size = size;
-    // memPool->firstFree->base = base;
-    //memPool->firstFree = NULL;
+    memPool->firstFree->base = base;
     memPool->allocList = NULL;
     memPool->mpid = global_mpid_nums;
     memPoolArray[global_mpid_nums] = memPool;
@@ -1125,9 +1117,8 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
         //RVCWriteText1("Mem pool allocate\n", 18);
         struct MPCB *currPool = memPoolArray[memory];
         uint32_t alloc_size = ((size + 63)/64) * 64;
-        FreeNodeRef cur = currPool->firstFree;
-        //FreeNodeRef curFree = currPool->firstFree;
-        FreeNodeRef prev;
+        FreeChunkRef cur = currPool->firstFree;
+        FreeChunkRef prev;
         while(cur) {
             // if (alloc_size > cur->size) {
             //     RVCWriteText1("too thicc\n", 10);
@@ -1139,7 +1130,7 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
                     // pull off freelist
                     prev->next = cur->next;
                     currPool->firstFree = cur->next;
-                    FreeNodeRef tmp = currPool->allocList; // add newnode to alloc
+                    FreeChunkRef tmp = currPool->allocList; // add newnode to alloc
                     cur -> next = tmp;                      // move cur
                     currPool -> allocList = cur;             // alloc list
                     *pointer = cur->base;               // return ptr cur->base
@@ -1148,13 +1139,13 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
                 }
                 else {
                     //RVCWriteText1("small enough size\n", 18);
-                    FreeNode *newnode = MemoryAlloc(alloc_size);
+                    FreeChunk *newnode = MemoryAlloc(alloc_size);
                     newnode->base = cur->base;
                     newnode->size = alloc_size;
                     cur->base += alloc_size;
                     cur->size -= alloc_size;
 
-                    FreeNodeRef tmp = currPool->allocList; // add newnode to alloc
+                    FreeChunkRef tmp = currPool->allocList; // add newnode to alloc
                     newnode -> next = tmp;
                     currPool -> allocList = newnode;
                     *pointer = newnode->base; // return newnode->base
