@@ -151,17 +151,18 @@ struct Mutex{
 //     struct FSSNode_TAG *next;
 // };
 
+typedef struct FreeChunk_TAG FreeChunk, *FreeChunkRef;
 
-typedef struct{
+struct FreeChunk_TAG{
     uint32_t size;
     uint8_t *base;
-    struct FreeChunkRef *next;
-} FreeChunk, *FreeChunkRef; 
+    struct FreeChunk_TAG *next;
+}; 
 
 typedef struct{
     int count;
     int structureSize;
-    FreeChunkRef *firstFree;
+    FreeChunkRef firstFree;
 } FSSAllocator, *FSSAllocatorRef;
 
 
@@ -529,9 +530,9 @@ TStatus RVCInitialize(uint32_t *gp) {
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
 
     FSSAllocatorInit(&FreeChunkAllocator, sizeof(FreeChunk));
-    for(int Index = 0; Index < 5; Index++){
-        DeallocateFreeChunk(&InitialFreeChunks[Index]);
-    }
+    //for(int Index = 0; Index < 5; Index++){
+    DeallocateFreeChunk(&InitialFreeChunks[0]);
+    //}
     // FSSAllocator TCBPool;
     // FSSAllocatorInit(&TCBPool, sizeof(struct TCB));
     
@@ -1087,6 +1088,9 @@ TStatus RVCMemoryPoolDelete(TMemoryPoolID memory) {
 }
 
 TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
+    if (memory == -1) { // if memory is invalid memory pool
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
     if (bytesleft == NULL) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
