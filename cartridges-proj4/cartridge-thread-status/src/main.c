@@ -26,6 +26,18 @@ TThreadReturn HighPriorityThread(void *param){
     WriteString("Checking Main: ");
     RVCThreadState(MainThreadID,&ThreadState);
     if(RVCOS_THREAD_STATE_READY != ThreadState){
+        if(ThreadState == RVCOS_THREAD_STATE_WAITING){
+            WriteString("Waiting\n");
+        }
+        else if (ThreadState == RVCOS_THREAD_STATE_DEAD){
+            WriteString("DEAD\n");
+        }
+        else if (ThreadState == RVCOS_THREAD_STATE_RUNNING){
+            WriteString("Running\n");
+        }
+        else if (ThreadState == RVCOS_THREAD_STATE_READY){
+            WriteString("Ready\n");
+        }
         WriteString("Invalid State\n");
         return 1;
     }

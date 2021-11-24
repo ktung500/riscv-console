@@ -35,6 +35,10 @@
 
 #define RVCOS_GRAPHIC_ID_INVALID                    ((TGraphicID)-1)
 
+#define RVCOS_GRAPHIC_STATE_DEACTIVATED             ((TGraphicState)0x01)
+#define RVCOS_GRAPHIC_STATE_PENDING                 ((TGraphicState)0x02)
+#define RVCOS_GRAPHIC_STATE_ACTIVATED               ((TGraphicState)0x03)
+
 #define RVCOS_GRAPHIC_TYPE_FULL                     ((TGraphicType)0)
 #define RVCOS_GRAPHIC_TYPE_LARGE                    ((TGraphicType)1)
 #define RVCOS_GRAPHIC_TYPE_SMALL                    ((TGraphicType)2)
@@ -57,6 +61,7 @@ typedef uint32_t TGraphicID, *TGraphicIDRef;
 typedef uint32_t TGraphicType, *TGraphicTypeRef;
 typedef uint32_t TPaletteID, *TPaletteIDRef;
 typedef uint8_t TPaletteIndex, *TPaletteIndexRef;
+typedef uint32_t TGraphicState, *TGraphicStateRef;
 
 typedef TThreadReturn (*TThreadEntry)(void *);
 

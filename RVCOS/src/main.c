@@ -36,14 +36,14 @@ volatile int num_mem_pool = 0;
 struct MPCB** memPoolArray;
 volatile TMemoryPoolID global_mpid_nums = 1; // system memory pool is 0
 TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize);
-struct GCB** graphicBufferArray;
+struct GCB** offscreenBufferArray;
 volatile TGraphicID global_gid_nums = 0;
 // Video Graphic Start -----------------------------------------------------------------------------------------------------------------------------
 
 struct GCB{
     TGraphicID gid;
     TGraphicType type;
-    int state;
+    TGraphicState state;
 } ;
 // all structs and globals taken from discussion-11-19
 // struct for color
@@ -575,6 +575,12 @@ TStatus RVCInitialize(uint32_t *gp) {
     idleThread->stack_base = idle_sb;
     idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 256), (TThreadEntry)(idleThread->entry), (uint32_t)(idleThread->param), idleThread->tid);
     
+    // for video memory
+    InitPointers(); 
+    memcpy((void *)BackgroundPalettes[0],RVCOPaletteDefaultColors,256 * sizeof(SColor)); // loads the colors from DefaultPalette.c in Background Palette 0 
+    memcpy((void *)SpritePalettes[0],RVCOPaletteDefaultColors,256 * sizeof(SColor)); // load the colors from DefaultPalette.c in Sprite Palette 0
+
+
     app_global_p = gp;
     if (app_global_p == 0) {
     // Failure since it didn't change global variable
@@ -1392,8 +1398,10 @@ TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
         struct GCB* newGraphic;
         newGraphic->type = type;
         newGraphic->gid = global_gid_nums;
-        graphicBufferArray[global_gid_nums] = newGraphic;
+        newGraphic->state = RVCOS_GRAPHIC_STATE_DEACTIVATED;  
+        offscreenBufferArray[global_gid_nums] = newGraphic;
         *gidref = global_gid_nums;
+        global_gid_nums++;
         return RVCOS_STATUS_SUCCESS;
     }
 }
@@ -1417,6 +1425,11 @@ TStatus RVCGraphicActivate(TGraphicID gid, SGraphicPositionRef pos, SGraphicDime
 TStatus RVCGraphicDeactivate(TGraphicID gid){
     return RVCOS_STATUS_SUCCESS;
 }
+
+int** determineOverlap(SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth){
+    
+}
+
 
 TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteIndex *src, uint32_t srcwidth){
     /*Upon successful activation of the background buffer, RVCGraphicDraw() returns 
