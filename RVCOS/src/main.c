@@ -44,6 +44,7 @@ struct GCB{
     TGraphicID gid;
     TGraphicType type;
     TGraphicState state;
+     void *buffer;
 } ;
 // all structs and globals taken from discussion-11-19
 // struct for color
@@ -166,6 +167,7 @@ FSSAllocator FreeChunkAllocator;
 FSSAllocator MPCBAllocator;
 FSSAllocator TCBAllocator;
 FSSAllocator MxAllocator;
+FSSAllocator GCBAllocator;
 int SuspendAllocationOfFreeChunks = 0;
 FreeChunk InitialFreeChunks[8];
 
@@ -275,6 +277,13 @@ void DeallocateMx(struct Mutex* mx){
     FSSDeallocate(&MxAllocator,(void *)mx);
 }
 
+struct GCB* AllocateGCB() {
+    return FSSAllocate(&GCBAllocator);
+}
+
+void DeallocateGCB(struct GCB* gcb){
+    FSSDeallocate(&GCBAllocator,(void *)gcb);
+}
 
 
 
@@ -1395,7 +1404,16 @@ TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     else{
-        struct GCB* newGraphic;
+        struct GCB* newGraphic = AllocateGCB();
+        if(type == RVCOS_GRAPHIC_TYPE_FULL){
+            RVCMemoryAllocate(512*288,newGraphic->buffer);
+        }
+        else if(type == RVCOS_GRAPHIC_TYPE_LARGE){
+            RVCMemoryAllocate(64*64,newGraphic->buffer);
+        }
+        else{
+            RVCMemoryAllocate(16*16,newGraphic->buffer);
+        }
         newGraphic->type = type;
         newGraphic->gid = global_gid_nums;
         newGraphic->state = RVCOS_GRAPHIC_STATE_DEACTIVATED;  
@@ -1439,6 +1457,13 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
     RVCOS_STATUS_ERROR_INVALID_PARAMETER is returned. If the buffer has been 
     activated, but the activation has not completed (the upcall has not been invoked), then 
     RVCOS_STATUS_ERROR_INVALID_STATE is returned. */
+    /*struct GCB* graphic = offscreenBufferArray[gid];
+    graphic->buffer = graphic->buffer + pos->DYPosition*dim->DWidth +pos->DXPosition;
+    for(int i = 0; i< row_count; i++){
+        memcpy(graphic->buffer, src, col_count);
+        graphic->buffer += dim->DWidth;
+        src += srcwidth;
+    }*/
     return RVCOS_STATUS_SUCCESS;
 }
 
