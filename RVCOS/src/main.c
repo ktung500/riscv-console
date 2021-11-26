@@ -44,7 +44,9 @@ struct GCB{
     TGraphicID gid;
     TGraphicType type;
     TGraphicState state;
-     void *buffer;
+    int height;
+    int width;
+    void *buffer;
 } ;
 // all structs and globals taken from discussion-11-19
 // struct for color
@@ -1407,12 +1409,18 @@ TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
         struct GCB* newGraphic = AllocateGCB();
         if(type == RVCOS_GRAPHIC_TYPE_FULL){
             RVCMemoryAllocate(512*288,newGraphic->buffer);
+            newGraphic->height = 512;
+            newGraphic->width = 288;
         }
         else if(type == RVCOS_GRAPHIC_TYPE_LARGE){
             RVCMemoryAllocate(64*64,newGraphic->buffer);
+            newGraphic->height = 64;
+            newGraphic->width = 64;
         }
         else{
             RVCMemoryAllocate(16*16,newGraphic->buffer);
+            newGraphic->height = 16;
+            newGraphic->width = 16;
         }
         newGraphic->type = type;
         newGraphic->gid = global_gid_nums;
@@ -1444,8 +1452,30 @@ TStatus RVCGraphicDeactivate(TGraphicID gid){
     return RVCOS_STATUS_SUCCESS;
 }
 
-int** determineOverlap(SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth){
+int* determineOverlap(SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth, int graphicSize){
+    int *overlap;
+    RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&overlap); //147456 = max pixels in graphic
     
+    int pos = 0;
+    int row = 0; // row in source
+    int col = 0; // col in source
+    int i = 0; // index of overlap array
+    while(1) {
+        if (pos > (dim->DHeight-1 * srcwidth) + dim->DWidth-1) {
+            break;
+        }
+        if (col <= dim->DWidth - 1 && row <= dim->DHeight - 1) {
+            overlap[i];
+            i++;
+        }
+        if (col == srcwidth - 1) {
+            col = 0;
+            row++;
+        } else {
+            col++;
+        }
+        pos++;
+    }
 }
 
 
@@ -1464,6 +1494,21 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
         graphic->buffer += dim->DWidth;
         src += srcwidth;
     }*/
+    struct GCB* graphic = offscreenBufferArray[gid];
+    int topLeft = (pos->DYPosition * graphic->width) + pos->DXPosition;
+    int graphicSize = dim->DWidth * dim->DHeight;
+    int *srcOverlap = determineOverlap(pos, dim, srcwidth, graphicSize);
+    int *bufPosArray;
+    int graphicSize = dim->DWidth * dim->DHeight;
+    RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&bufPosArray);
+    // ouch ouch my brain hurts. I will come back to this later
+    for (int i = 0; i < graphicSize; i++) {
+        int srcRow = srcOverlap[i] + 1 / (dim->DWidth) - 1;
+        int srcCol = srcOverlap[i] % (dim->DWidth) - 1;
+        bufPosArray[i] = topLeft + srcOverlap[i];
+
+    }
+
     return RVCOS_STATUS_SUCCESS;
 }
 
