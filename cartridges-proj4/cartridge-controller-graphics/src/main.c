@@ -1,6 +1,6 @@
 #include <stdint.h>
 #include <string.h>
-#include "RVCOS.h"
+#include "../include/RVCOS.h"
 
 #define DEFAULT_COLOR_WHITE     0x0F
 #define DEFAULT_COLOR_BLACK     0x10
@@ -9,6 +9,15 @@
 #define SCREEN_HEIGHT           0x120
 #define SPRITE_WIDTH            0x10
 #define SPRITE_HEIGHT           0x10
+
+void WriteString(const char *str){
+    const char *Ptr = str;
+    while(*Ptr){
+        Ptr++;
+    }
+    RVCWriteText(str,Ptr-str);
+}
+
 
 int main() {
     SControllerStatus ControllerStatus;
@@ -24,30 +33,36 @@ int main() {
     Position.DXPosition = 0;
     Dimensions.DHeight = 1;
     Dimensions.DWidth = SCREEN_WIDTH;
+    WriteString("first creates done\n");
     for(Position.DYPosition = 0; Position.DYPosition < SCREEN_HEIGHT; Position.DYPosition++){
         RVCGraphicDraw(Background,&Position,&Dimensions,PixeBuffer,SCREEN_WIDTH);
     }
     Position.DXPosition = 0;
     Position.DYPosition = 0;
     Position.DZPosition = 0;
+    WriteString("draws done\n");
     RVCGraphicActivate(Background,&Position,NULL,RVCOS_PALETTE_ID_DEFAULT);
-
+    WriteString("activate done\n");
     for(int Index = 0; Index < SCREEN_WIDTH; Index++){
         PixeBuffer[Index] = CurrentColor;
     }
     RVCGraphicCreate(RVCOS_GRAPHIC_TYPE_SMALL,&Cursor);
+    WriteString("second create done\n");
     Position.DXPosition = 0;
     Position.DYPosition = 0;
     Dimensions.DHeight = SPRITE_HEIGHT;
     Dimensions.DWidth = SPRITE_WIDTH;
+    WriteString("second draw called\n");
     RVCGraphicDraw(Cursor,&Position,&Dimensions,PixeBuffer,SPRITE_WIDTH);
+    WriteString("second draw done\n");
     Position.DXPosition = 0;
     Position.DYPosition = 0;
     Position.DZPosition = 4;
     RVCGraphicActivate(Cursor,&Position,&Dimensions,RVCOS_PALETTE_ID_DEFAULT);
-
+    WriteString("before changing modes\n");
     RVCChangeVideoMode(RVCOS_VIDEO_MODE_GRAPHICS);
-    
+    //RVCChangeVideoMode(1);
+    WriteString("mode changed\n");
     while(1){
         RVCWriteText("\x1B[H",3);
         RVCReadController(&ControllerStatus);
