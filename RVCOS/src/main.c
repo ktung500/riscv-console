@@ -1452,11 +1452,14 @@ TStatus RVCGraphicDeactivate(TGraphicID gid){
     return RVCOS_STATUS_SUCCESS;
 }
 
-int* determineOverlap(SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth, int graphicSize){
+int* determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth, int graphicSize, int **bufPosArray){
     int *overlap;
+    int *buf;
     RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&overlap); //147456 = max pixels in graphic
-    
-    int pos = 0;
+    RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&buf);
+    int topLeft = (pos->DYPosition * graphic->width) + pos->DXPosition;
+    int srcPos = 0;
+    int graphPos = 0;
     int row = 0; // row in source
     int col = 0; // col in source
     int i = 0; // index of overlap array
@@ -1465,17 +1468,22 @@ int* determineOverlap(SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32
             break;
         }
         if (col <= dim->DWidth - 1 && row <= dim->DHeight - 1) {
-            overlap[i];
+            overlap[i] = pos;
+            buf[i] = graphPos + topLeft;
             i++;
         }
         if (col == srcwidth - 1) {
             col = 0;
             row++;
+            graphPos += graphic->width - srcwidth - 1;
         } else {
             col++;
         }
         pos++;
     }
+    *bufPosArray = buf;
+    RVCMemoryPoolDeallocate(0, buf);
+    return overlap;
 }
 
 
@@ -1495,19 +1503,27 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
         src += srcwidth;
     }*/
     struct GCB* graphic = offscreenBufferArray[gid];
-    int topLeft = (pos->DYPosition * graphic->width) + pos->DXPosition;
     int graphicSize = dim->DWidth * dim->DHeight;
-    int *srcOverlap = determineOverlap(pos, dim, srcwidth, graphicSize);
     int *bufPosArray;
-    int graphicSize = dim->DWidth * dim->DHeight;
     RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&bufPosArray);
-    // ouch ouch my brain hurts. I will come back to this later
-    for (int i = 0; i < graphicSize; i++) {
-        int srcRow = srcOverlap[i] + 1 / (dim->DWidth) - 1;
-        int srcCol = srcOverlap[i] % (dim->DWidth) - 1;
-        bufPosArray[i] = topLeft + srcOverlap[i];
-
+    int *srcOverlap = determineOverlap(graphic, pos, dim, srcwidth, graphicSize, &bufPosArray);
+    for(int i = 0; i< graphicSize; i++){
+        int buffPos = bufPosArray[i];
+        int srcPos = srcOverlap[i];
+        // graphic->buffer = buffer + buffPos
+        memcpy((int)graphic->buffer + buffPos, src[srcPos], 1);
     }
+    return RVCOS_STATUS_SUCCESS;
+
+
+
+    // // ouch ouch my brain hurts. I will come back to this later
+    // for (int i = 0; i < graphicSize; i++) {
+    //     int srcRow = srcOverlap[i] + 1 / (dim->DWidth) - 1;
+    //     int srcCol = srcOverlap[i] % (dim->DWidth) - 1;
+    //     bufPosArray[i] = topLeft + srcOverlap[i];
+
+    // }
 
     return RVCOS_STATUS_SUCCESS;
 }
@@ -1572,14 +1588,14 @@ uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint3
         case 0x14: return RVCMutexQuery((void *)p1, (void *)p2);
         case 0x15: return RVCMutexAcquire((void *)p1, (void *)p2);
         case 0x16: return RVCMutexRelease ((void *)p1);
-        /*case 0x19: return RVCGraphicCreate (p1,p2);
+        case 0x19: return RVCGraphicCreate (p1,p2);
         case 0x1A: return RVCGraphicDelete (p1);
         case 0x1B: return RVCGraphicActivate(p1,p2,p3,p4);
         case 0x1C: return RVCGraphicDeactivate(p1);
         case 0x1D: return RVCGraphicDraw(p1,p2,p3,p4,p5);
-        case 0x1E: return RVCPaletteCreate(p1);
-        case 0x1F: return RVCPaletteDelete(p1);
-        case 0x20: return RVCPaletteUpdate(p1,p2,p3,p4);*/
+        // case 0x1E: return RVCPaletteCreate(p1);
+        // case 0x1F: return RVCPaletteDelete(p1);
+        // case 0x20: return RVCPaletteUpdate(p1,p2,p3,p4);
     }
     return code + 1;
 }
