@@ -31,8 +31,10 @@ volatile TThreadID global_tid_nums = 2;  // should only be 2-256
 volatile int num_mutex = 0;
 struct TCB** threadArray;
 volatile int num_of_threads = 0;
-int threadArraySize = 256; // If it fills up, double the size
+volatile int num_of_buffers = 0;
 volatile int num_mem_pool = 0;
+int threadArraySize = 256; // If it fills up, double the size
+int offscreenBufferArraySize = 1000; 
 struct MPCB** memPoolArray;
 volatile TMemoryPoolID global_mpid_nums = 1; // system memory pool is 0
 TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize);
@@ -562,8 +564,8 @@ TStatus RVCInitialize(uint32_t *gp) {
     for (int i = 0; i < 256; i++) {
         memPoolArray[i] = NULL;
     }
-    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&offscreenBufferArray);
-    for (int i = 0; i < 256; i++) {
+    RVCMemoryPoolAllocate(0, offscreenBufferArraySize * sizeof(void *), (void**)&offscreenBufferArray);
+    for (int i = 0; i < offscreenBufferArraySize; i++) {
         offscreenBufferArray[i] = NULL;
     }
     struct TCB* mainThread;  // initializing TCB of main thread
@@ -1065,12 +1067,6 @@ TStatus RVCTickCount(TTickRef tickref) {
     }
 }
 
-// from discussion11-05.c
-// void *MemoryAlloc(int size){
-//     AllocateFreeChunk();
-//     return malloc(size);
-// }
-
 TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef memoryref) {
     if (base == NULL || size < 128) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
@@ -1191,9 +1187,6 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
         return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
     }
 }
-
-
-
 
 TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
     if (pointer == NULL) { // Or if memory is invalid memory pool
@@ -1417,7 +1410,7 @@ TStatus RVCMutexRelease(TMutexID mutex) {
 }
 
 TStatus RVCChangeVideoMode(TVideoMode mode){
-    if (mode != RVCOS_VIDEO_MODE_TEXT || mode != RVCOS_VIDEO_MODE_GRAPHICS){
+    if (mode != RVCOS_VIDEO_MODE_TEXT && mode != RVCOS_VIDEO_MODE_GRAPHICS){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     ModeControl->DMode = mode; // changes the mode, and then blocks til next video refresh
@@ -1432,37 +1425,52 @@ TStatus RVCChangeVideoMode(TVideoMode mode){
 }
 
 TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
-    if(type != RVCOS_GRAPHIC_TYPE_FULL || type != RVCOS_GRAPHIC_TYPE_LARGE || type != RVCOS_GRAPHIC_TYPE_SMALL){
+    if(type != RVCOS_GRAPHIC_TYPE_FULL && type != RVCOS_GRAPHIC_TYPE_LARGE && type != RVCOS_GRAPHIC_TYPE_SMALL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     else if(gidref == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-    else{
-        struct GCB* newGraphic = AllocateGCB();
-        if(type == RVCOS_GRAPHIC_TYPE_FULL){
-            RVCMemoryAllocate(512*288,newGraphic->buffer);
-            newGraphic->height = 512;
-            newGraphic->width = 288;
-        }
-        else if(type == RVCOS_GRAPHIC_TYPE_LARGE){
-            RVCMemoryAllocate(64*64,newGraphic->buffer);
-            newGraphic->height = 64;
-            newGraphic->width = 64;
-        }
-        else{
-            RVCMemoryAllocate(16*16,newGraphic->buffer);
-            newGraphic->height = 16;
-            newGraphic->width = 16;
-        }
-        newGraphic->type = type;
-        newGraphic->gid = global_gid_nums;
-        newGraphic->state = RVCOS_GRAPHIC_STATE_DEACTIVATED;  
-        offscreenBufferArray[global_gid_nums] = newGraphic;
-        *gidref = global_gid_nums;
-        global_gid_nums++;
-        return RVCOS_STATUS_SUCCESS;
+    if(num_of_buffers >= offscreenBufferArraySize){  // number of buffers exceeeds current size of array
+            // double size
+            offscreenBufferArraySize *= 2;
+            int newSize = offscreenBufferArraySize;
+            struct GCB **temp;
+            RVCMemoryPoolAllocate(0, offscreenBufferArraySize * sizeof(void *), (void**)temp);
+            for (int i=0; i < offscreenBufferArraySize; i++) {
+                temp[i] = offscreenBufferArray[i];
+            }
+            for (int i = 0; i < offscreenBufferArraySize; i++) {
+                offscreenBufferArray[i] = NULL;
+            }
+            RVCMemoryDeallocate(offscreenBufferArray);
+            offscreenBufferArray = temp;
+            offscreenBufferArraySize = newSize;
     }
+    struct GCB* newGraphic = AllocateGCB();
+    if(type == RVCOS_GRAPHIC_TYPE_FULL){
+        RVCMemoryAllocate(512*288,newGraphic->buffer);
+        newGraphic->height = 512;
+        newGraphic->width = 288;
+    }
+    else if(type == RVCOS_GRAPHIC_TYPE_LARGE){
+        RVCMemoryAllocate(64*64,newGraphic->buffer);
+        newGraphic->height = 64;
+        newGraphic->width = 64;
+    }
+    else{
+        RVCMemoryAllocate(16*16,newGraphic->buffer);
+        newGraphic->height = 16;
+        newGraphic->width = 16;
+    }
+    newGraphic->type = type;
+    newGraphic->gid = global_gid_nums;
+    newGraphic->state = RVCOS_GRAPHIC_STATE_DEACTIVATED;  
+    offscreenBufferArray[global_gid_nums] = newGraphic;
+    *gidref = global_gid_nums;
+    global_gid_nums++;
+    num_of_buffers++;
+    return RVCOS_STATUS_SUCCESS;
 }
 
 TStatus RVCGraphicDelete(TGraphicID gid){
@@ -1718,6 +1726,8 @@ uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint3
         case 0x14: return RVCMutexQuery((void *)p1, (void *)p2);
         case 0x15: return RVCMutexAcquire((void *)p1, (void *)p2);
         case 0x16: return RVCMutexRelease ((void *)p1);
+        case 0x17: return RVCChangeVideoMode (p1);
+        //case 0x18: return RVCSetVideoUpcall (p1,p2);
         case 0x19: return RVCGraphicCreate (p1,p2);
         case 0x1A: return RVCGraphicDelete (p1);
         case 0x1B: return RVCGraphicActivate(p1,p2,p3,p4);
