@@ -38,6 +38,9 @@ volatile TMemoryPoolID global_mpid_nums = 1; // system memory pool is 0
 TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize);
 struct GCB** offscreenBufferArray;
 volatile TGraphicID global_gid_nums = 0;
+volatile int num_backgrounds = 0;   // 0-3
+volatile int num_large_sprites = 0; // 0-63
+volatile int num_small_sprites = 0; //0-127
 // Video Graphic Start -----------------------------------------------------------------------------------------------------------------------------
 
 struct GCB{
@@ -323,6 +326,9 @@ struct PrioQ *scheduleQ;
 struct ReadyQ *waiterQ;
 struct ReadyQ *sleeperQ;
 struct ReadyQ *writerQ;
+struct ReadyQ *backgroundQ;
+struct ReadyQ *largeSpriteQ;
+struct ReadyQ *smallSpriteQ;
 
 struct PrioQ* createQueue(int maxSize)
 {
@@ -545,6 +551,9 @@ TStatus RVCInitialize(uint32_t *gp) {
     waiterQ = createReadyQ(256);
     sleeperQ = createReadyQ(256);
     writerQ = createReadyQ(256);
+    backgroundQ = createReadyQ(256);
+    largeSpriteQ = createReadyQ(256);
+    smallSpriteQ = createReadyQ(256);
     RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&mutexArray);
     for (int i = 0; i < 256; i++) {
         mutexArray[i] = NULL;
@@ -552,6 +561,10 @@ TStatus RVCInitialize(uint32_t *gp) {
     RVCMemoryPoolAllocate(0, 256 * sizeof(struct MPCB), (void**)&memPoolArray);
     for (int i = 0; i < 256; i++) {
         memPoolArray[i] = NULL;
+    }
+    RVCMemoryPoolAllocate(0, 256 * sizeof(struct MPCB), (void**)&offscreenBufferArray);
+    for (int i = 0; i < 256; i++) {
+        offscreenBufferArray[i] = NULL;
     }
     struct TCB* mainThread;  // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
@@ -1436,6 +1449,82 @@ TStatus RVCGraphicDelete(TGraphicID gid){
     return RVCOS_STATUS_SUCCESS;
 }
 
+void convertPosAndDim(struct GCB* graphic,SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteID pid, int i){
+    if(graphic->type == RVCOS_GRAPHIC_TYPE_FULL){
+        BackgroundControls[i].DXOffset = pos->DXPosition;
+        BackgroundControls[i].DYOffset = pos->DYPosition;
+        BackgroundControls[i].DZ = pos->DZPosition;
+        BackgroundControls[i].DPalette = pid;
+    }
+    else if(graphic->type == RVCOS_GRAPHIC_TYPE_LARGE){
+        LargeSpriteControls[i].DHeight = dim->DHeight;
+        LargeSpriteControls[i].DWidth = dim->DWidth;
+        LargeSpriteControls[i].DXOffset = pos->DXPosition;
+        LargeSpriteControls[i].DYOffset = pos->DYPosition;
+        LargeSpriteControls[i].DPalette = pid;
+    }
+    else{
+        SmallSpriteControls[i].DHeight = dim->DHeight;
+        SmallSpriteControls[i].DWidth = dim->DWidth;
+        SmallSpriteControls[i].DXOffset = pos->DXPosition;
+        SmallSpriteControls[i].DYOffset = pos->DYPosition;
+        SmallSpriteControls[i].DPalette = pid;
+    }
+
+}
+
+int validateParams(struct GCB* graphic,SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteID pid){
+    int valid = 0;
+    if(graphic->type == RVCOS_GRAPHIC_TYPE_FULL){
+        if(pos->DXPosition < -512 || pos->DXPosition > 512){
+            //not valid
+            valid = -1;
+        }
+        else if(pos->DYPosition < -288 || pos->DYPosition > 288){
+            valid = -1;
+        }
+        if(valid != -1){
+            convertPosAndDim(graphic,pos,dim,pid,num_backgrounds);
+        }
+    }
+    else if(graphic->type == RVCOS_GRAPHIC_TYPE_LARGE){
+        if(pos->DXPosition < -64 || pos->DXPosition > 512){
+            //not valid
+            valid = -1;
+        }
+        else if(pos->DYPosition < -64 || pos->DYPosition > 288){
+            valid = -1;
+        }
+        else if(dim->DHeight < 33 || dim->DHeight > 64){
+            valid = -1;
+        }
+        else if(dim->DWidth < 33 || dim->DWidth > 64){
+            valid = -1;
+        }
+        if(valid != -1){
+            convertPosAndDim(graphic,pos,dim,pid,num_large_sprites);
+        }
+    }
+    else{
+        if(pos->DXPosition < -16 || pos->DXPosition > 512){
+            //not valid
+            valid = -1;
+        }
+        else if(pos->DYPosition < -16 || pos->DYPosition > 288){
+            valid = -1;
+        }
+        else if(dim->DHeight < 1 || dim->DHeight > 16){
+            valid = -1;
+        }
+        else if(dim->DWidth < 1 || dim->DWidth > 16){
+            valid = -1;
+        }
+        if(valid != -1){
+            convertPosAndDim(graphic,pos,dim,pid,num_small_sprites);
+        }
+    }
+}
+
 TStatus RVCGraphicActivate(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteID pid){
   /*  Upon successful activation of the background buffer, RVCGraphicActivate() returns 
     RVCOS_STATUS_SUCCESS. If the graphic buffer identifier gid does not exist or if the palette 
@@ -1445,6 +1534,29 @@ TStatus RVCGraphicActivate(TGraphicID gid, SGraphicPositionRef pos, SGraphicDime
     there are insufficient video hardware resources to activate the graphic buffer, then 
     RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES  is  returned.  If  the  graphic  buffer 
     has a pending activation, then RVCOS_STATUS_ERROR_INVALID_STATE is returned*/
+    if(offscreenBufferArray[gid] == NULL){ // also need to include if the palette exists
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    struct GCB* graphic = offscreenBufferArray[gid];
+    if(dim == NULL && pos == NULL && (graphic->type == RVCOS_GRAPHIC_TYPE_LARGE || graphic->type == RVCOS_GRAPHIC_TYPE_SMALL)){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER; 
+    }
+    if(validateParams(graphic,pos,dim,pid) == -1){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    if(graphic->state == RVCOS_GRAPHIC_STATE_PENDING){
+        return RVCOS_STATUS_ERROR_INVALID_STATE;
+    }
+    graphic->state = RVCOS_GRAPHIC_STATE_PENDING;
+    if(graphic->type == RVCOS_GRAPHIC_TYPE_FULL){
+        insertRQ(backgroundQ, gid);
+    }
+    else if(graphic->type == RVCOS_GRAPHIC_TYPE_LARGE){
+        insertRQ(largeSpriteQ, gid);
+    }
+    else{
+        insertRQ(smallSpriteQ, gid);
+    }
     return RVCOS_STATUS_SUCCESS;
 }
 
@@ -1524,8 +1636,6 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
     //     bufPosArray[i] = topLeft + srcOverlap[i];
 
     // }
-
-    return RVCOS_STATUS_SUCCESS;
 }
 
 TStatus RVCPaletteCreate(TPaletteIDRef pidref){

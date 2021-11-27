@@ -82,6 +82,15 @@ void init(void){
     MTIMECMP_HIGH = 0;
 }
 
+struct GCB{
+    TGraphicID gid;
+    TGraphicType type;
+    TGraphicState state;
+    int height;
+    int width;
+    void *buffer;
+} ;
+
 struct TCB{
     TThreadID tid;
     uint32_t *gp;
@@ -111,10 +120,14 @@ extern volatile int sleeperCursor;
 extern TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize);
 extern TThreadID get_tp(void);
 extern struct TCB** threadArray;
+extern struct GCB** offscreenBufferArray;
 extern struct ReadyQ *sleeperQ;
 extern int removeRQ(struct ReadyQ *Q);
 extern void insertRQ(struct ReadyQ *Q, int tid);
 extern struct ReadyQ *writerQ;
+extern struct ReadyQ *backgroundsQ;
+extern struct ReadyQ *largeSpriteQ;
+extern struct ReadyQ *smallSpriteQ;
 extern TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize);
 extern volatile int num_of_threads;
 
@@ -151,6 +164,11 @@ void video_interrupt_handler(void){
             }
             
 	    }
+        while(backgroundsQ->size){
+            int graphicID = removeRQ(backgroundsQ);
+            struct GCB* graphic = offscreenBufferArray[graphicID];
+            
+        }
         if(flag){
             schedule();
         }
