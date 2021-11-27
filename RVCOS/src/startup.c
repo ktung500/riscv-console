@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "RVCOS.h"
+#include <string.h>
 
 
 extern uint8_t _erodata[];
@@ -82,6 +83,41 @@ void init(void){
     MTIMECMP_HIGH = 0;
 }
 
+typedef struct {
+    uint32_t DPalette : 2;
+    uint32_t DXOffset : 10;  // where it is on the screen
+    uint32_t DYOffset : 9;
+    uint32_t DWidth : 5;     // how big the srite is
+    uint32_t DHeight : 5;
+    uint32_t DReserved : 1;
+} SLargeSpriteControl, *SLargeSpriteControlRef;
+
+// struct for the controls of a small sprite
+typedef struct {
+    uint32_t DPalette : 2;
+    uint32_t DXOffset : 10;
+    uint32_t DYOffset : 9;
+    uint32_t DWidth : 4;
+    uint32_t DHeight : 4;
+    uint32_t DZ : 3;
+} SSmallSpriteControl, * SSmallSpriteControlRef;
+
+// struct for the controls of a background
+typedef struct {
+    uint32_t DPalette : 2;
+    uint32_t DXOffset : 10;
+    uint32_t DYOffset : 10;
+    uint32_t DZ : 3;
+    uint32_t DReserved : 7;
+} SBackgroundControl, *SBackgroundControlRef;
+
+// struct to deal with the video controller
+typedef struct {
+    uint32_t DMode : 1;
+    uint32_t DRefresh : 7;
+    uint32_t DReserved : 24;
+} SVideoControllerMode, *SVideoControllerModeRef;
+
 struct GCB{
     TGraphicID gid;
     TGraphicType type;
@@ -131,6 +167,18 @@ extern struct ReadyQ *smallSpriteQ;
 extern TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize);
 extern volatile int num_of_threads;
 
+extern volatile uint8_t *BackgroundData[5];  
+extern volatile uint8_t *LargeSpriteData[64];
+extern volatile uint8_t *SmallSpriteData[128];
+
+// all from the discussion-11-19 code
+extern volatile SColor *BackgroundPalettes[4];
+extern volatile SColor *SpritePalettes[4];
+extern volatile SBackgroundControl *BackgroundControls;// = (volatile SBackgroundControl *)0x500FF100;
+extern volatile SLargeSpriteControl *LargeSpriteControls;// = (volatile SLargeSpriteControl *)0x500FF114;
+extern volatile SSmallSpriteControl *SmallSpriteControls;// = (volatile SSmallSpriteControl *)0x500FF214;
+extern volatile SVideoControllerMode *ModeControl;// = (volatile SVideoControllerMode *)0x500FF414;
+
 struct ReadyQ{
     int* queue;
     int front;
@@ -167,7 +215,20 @@ void video_interrupt_handler(void){
         while(backgroundQ->size){
             int graphicID = removeRQ(backgroundQ);
             struct GCB* graphic = offscreenBufferArray[graphicID];
-            
+            graphic->state = RVCOS_GRAPHIC_STATE_ACTIVATED;
+            memcpy((void *)BackgroundData[0],graphic->buffer,512*288);
+        }
+        while(largeSpriteQ->size){
+            int graphicID = removeRQ(largeSpriteQ);
+            struct GCB* graphic = offscreenBufferArray[graphicID];
+            graphic->state = RVCOS_GRAPHIC_STATE_ACTIVATED;
+            memcpy((void *)LargeSpriteData[0],graphic->buffer,64*64);
+        }
+        while(smallSpriteQ->size){
+            int graphicID = removeRQ(smallSpriteQ);
+            struct GCB* graphic = offscreenBufferArray[graphicID];
+            graphic->state = RVCOS_GRAPHIC_STATE_ACTIVATED;
+            memcpy((void *)SmallSpriteData[0],graphic->buffer,16*16);
         }
         if(flag){
             schedule();
