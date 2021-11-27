@@ -125,7 +125,7 @@ extern struct ReadyQ *sleeperQ;
 extern int removeRQ(struct ReadyQ *Q);
 extern void insertRQ(struct ReadyQ *Q, int tid);
 extern struct ReadyQ *writerQ;
-extern struct ReadyQ *backgroundsQ;
+extern struct ReadyQ *backgroundQ;
 extern struct ReadyQ *largeSpriteQ;
 extern struct ReadyQ *smallSpriteQ;
 extern TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize);
@@ -164,8 +164,8 @@ void video_interrupt_handler(void){
             }
             
 	    }
-        while(backgroundsQ->size){
-            int graphicID = removeRQ(backgroundsQ);
+        while(backgroundQ->size){
+            int graphicID = removeRQ(backgroundQ);
             struct GCB* graphic = offscreenBufferArray[graphicID];
             
         }

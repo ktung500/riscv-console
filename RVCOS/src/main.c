@@ -541,7 +541,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     FSSAllocatorInit(&FreeChunkAllocator, sizeof(FreeChunk));
 
     for(int Index = 0; Index < 8; Index++){
-    DeallocateFreeChunk(&InitialFreeChunks[Index]);
+        DeallocateFreeChunk(&InitialFreeChunks[Index]);
     }
     RVCMemoryPoolAllocate(0, threadArraySize * sizeof(void *), (void**)&threadArray);
     for (int i = 0; i < threadArraySize; i++) {
@@ -558,11 +558,11 @@ TStatus RVCInitialize(uint32_t *gp) {
     for (int i = 0; i < 256; i++) {
         mutexArray[i] = NULL;
     }
-    RVCMemoryPoolAllocate(0, 256 * sizeof(struct MPCB), (void**)&memPoolArray);
+    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&memPoolArray);
     for (int i = 0; i < 256; i++) {
         memPoolArray[i] = NULL;
     }
-    RVCMemoryPoolAllocate(0, 256 * sizeof(struct MPCB), (void**)&offscreenBufferArray);
+    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&offscreenBufferArray);
     for (int i = 0; i < 256; i++) {
         offscreenBufferArray[i] = NULL;
     }
@@ -670,9 +670,8 @@ TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
                                 cursor += 1;
                             }
                         } else if (c == 'D') {
-                            if (cursor % 0x40 != 0) { // only move left if not at left of screen
+                            //if (cursor % 0x40 != 0) { // only move left if not at left of screen
                                 cursor -= 1;
-                            }
                         } else if (c == 'H') {
                             cursor = 0;
                         } else if (isdigit(c)){
@@ -1076,6 +1075,9 @@ TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef 
     if (base == NULL || size < 128) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
+    if (memoryref == NULL) {
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
     struct MPCB *memPool;
     memPool = AllocateMPCB();
     memPool->base = base;
@@ -1099,16 +1101,33 @@ TStatus RVCMemoryPoolDelete(TMemoryPoolID memory) {
     if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
+    if (memPoolArray[memory] == NULL || memory == -1){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    struct MPCB* curPool = memPoolArray[memory];
+    if (curPool->freeSize == curPool->size){
+        return  RVCOS_STATUS_ERROR_INVALID_STATE;
+    }
+    else{
+        num_mem_pool--;
+        RVCMemoryPoolDeallocate(0, curPool);
+        memPoolArray[memory] = NULL;
+        return RVCOS_STATUS_SUCCESS;
+    }
     // if any memory has been allocated from the pool and is not deallocated
     //   return RVCOS_STATUS_ERROR_INVALID_STATE 
 }
 
 TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
-    if (memory == -1) { // if memory is invalid memory pool
-        return RVCOS_STATUS_ERROR_INVALID_ID;
-    }
     if (bytesleft == NULL) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    if (memory == 0) {
+        *bytesleft = 0;
+        return RVCOS_STATUS_SUCCESS;
+    }
+    if (memory == -1 || memPoolArray[memory] == NULL) { // if memory is invalid memory pool
+        return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     *bytesleft = memPoolArray[memory]->freeSize;
     return RVCOS_STATUS_SUCCESS;
@@ -1116,15 +1135,14 @@ TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
 
 // allocate might call allocatefreechunk
 TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **pointer) {
-    if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
+    if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    else if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
         *pointer = (void *)malloc(size);
         return RVCOS_STATUS_SUCCESS;
     }
-    if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
-        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
-
-    }
-    else if (memPoolArray[memory] == NULL){
+    else if (memPoolArray[memory] == NULL || memory == -1){
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(memPoolArray[memory]->freeSize < size){
@@ -1148,6 +1166,7 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
                     cur -> next = tmp;                      // move cur
                     currPool -> allocList = cur;             // alloc list
                     *pointer = cur->base;               // return ptr cur->base
+                    currPool->freeSize -= alloc_size;
                     return RVCOS_STATUS_SUCCESS;
 
                 }
@@ -1161,6 +1180,7 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
                     FreeChunkRef tmp = currPool->allocList; // add newnode to alloc
                     newnode -> next = tmp;
                     currPool -> allocList = newnode;
+                    currPool->freeSize -= alloc_size;
                     *pointer = newnode->base; // return newnode->base
                     return RVCOS_STATUS_SUCCESS;
                 }
@@ -1180,8 +1200,11 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     if (memory == 0) {
-        free(pointer);
+        // free(pointer)
         return RVCOS_STATUS_SUCCESS;
+    }
+    if (memory == -1 || memPoolArray[memory] == NULL) {
+        return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     struct MPCB* mPool = memPoolArray[memory];
     FreeChunkRef curAlloc = mPool->allocList;
@@ -1239,13 +1262,8 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
         newFree->next = curFree->next;
         DeallocateFreeChunk(curFree);
     }
-    
-    // find where pointer matches base
-    // if base + size = base of next, coalesce
-    // if base + size
+    mPool->size += curFree->size;
     return RVCOS_STATUS_SUCCESS;
-    //  If pointer does not specify a memory location that was previously allocated from the memory pool, 
-    // RVCOS_STATUS_ERROR_INVALID_PARAMETER is returned. 
 }
 
 TStatus RVCMutexCreate(TMutexIDRef mutexref) {
@@ -1263,6 +1281,7 @@ TStatus RVCMutexCreate(TMutexIDRef mutexref) {
     mutexArray[num_mutex] = mx;
     *mutexref = num_mutex;
     num_mutex ++;
+    return RVCOS_STATUS_SUCCESS;
 
 }
 
@@ -1294,6 +1313,7 @@ TStatus RVCMutexQuery(TMutexID mutex, TThreadIDRef ownerref) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     *ownerref = mutexArray[mutex] -> holder;
+    return RVCOS_STATUS_SUCCESS;
 }
 
 TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
