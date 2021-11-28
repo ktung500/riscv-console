@@ -32,7 +32,6 @@ volatile int num_mutex = 0;
 struct TCB** threadArray;
 volatile int num_of_threads = 0;
 volatile int num_of_buffers = 0;
-volatile int num_mem_pool = 0;
 int threadArraySize = 256; // If it fills up, double the size
 int offscreenBufferArraySize = 1000; 
 struct MPCB** memPoolArray;
@@ -556,7 +555,10 @@ void* skeleton(TThreadID thread_id){
 
 TStatus RVCInitialize(uint32_t *gp) {
     FSSAllocatorInit(&FreeChunkAllocator, sizeof(FreeChunk));
-
+    // struct MPCB* systemPool;
+    // //RVCMemoryPoolAllocate(0, sizeof(struct MPCB), (void**)&systemPool);
+    // systemPool->size = 10000;
+    // memPoolArray[0] = systemPool;
     for(int Index = 0; Index < 8; Index++){
         DeallocateFreeChunk(&InitialFreeChunks[Index]);
     }
@@ -576,7 +578,7 @@ TStatus RVCInitialize(uint32_t *gp) {
         mutexArray[i] = NULL;
     }
     RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&memPoolArray);
-    for (int i = 0; i < 256; i++) {
+    for (int i = 1; i < 256; i++) {
         memPoolArray[i] = NULL;
     }
     RVCMemoryPoolAllocate(0, offscreenBufferArraySize * sizeof(void *), (void**)&offscreenBufferArray);
@@ -901,9 +903,16 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     if (currThread->state == RVCOS_THREAD_STATE_DEAD || currThread->state == RVCOS_THREAD_STATE_CREATED){
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
+    //RVCWriteText1("set to dead\n", 12);
     currThread->state = RVCOS_THREAD_STATE_DEAD;
     currThread->ret_val = returnval;
-
+    for (int i = 0; i < num_mutex; i++) {
+        if (mutexArray[i]->holder == thread) {
+            RVCWriteText1("releasing mx in term\n", 21);
+            mutexArray[i] -> holder = NULL;
+            mutexArray[i] -> unlocked = 1;
+        }
+    }
     if(waiterQ->size != 0){
         int flag = 0;
         for(int i = 0; i < waiterQ->size; i++){
@@ -1056,6 +1065,7 @@ TStatus RVCThreadSleep(TTick tick) {
         }
         struct TCB* nextRT = threadArray[next];
         enqueueThread(nextRT);
+        return RVCOS_STATUS_SUCCESS;
     } else {
         struct TCB* current = threadArray[get_tp()];
         current->ticks = tick;
@@ -1121,11 +1131,14 @@ TStatus RVCMemoryPoolDelete(TMemoryPoolID memory) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     struct MPCB* curPool = memPoolArray[memory];
-    if (curPool->freeSize == curPool->size){
-        return  RVCOS_STATUS_ERROR_INVALID_STATE;
+    // if (curPool->freeSize != curPool->size){
+    //     return  RVCOS_STATUS_ERROR_INVALID_STATE;
+    // }
+    if (curPool->allocList != NULL) {
+        return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
-        num_mem_pool--;
+        global_mpid_nums;
         RVCMemoryPoolDeallocate(0, curPool);
         memPoolArray[memory] = NULL;
         return RVCOS_STATUS_SUCCESS;
@@ -1138,25 +1151,32 @@ TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
     if (bytesleft == NULL) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-    if (memory == 0) {
-        *bytesleft = 0;
+    else if (memory == 0) {
+        //*bytesleft = memPoolArray[0]->size;
+        *bytesleft = 100000;
         return RVCOS_STATUS_SUCCESS;
     }
-    if (memory == -1 || memPoolArray[memory] == NULL) { // if memory is invalid memory pool
+    else if (memory == -1 || memPoolArray[memory] == NULL) { // if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_ID;
+    } else {
+        *bytesleft = memPoolArray[memory]->freeSize;
+        return RVCOS_STATUS_SUCCESS;
     }
-    *bytesleft = memPoolArray[memory]->freeSize;
-    return RVCOS_STATUS_SUCCESS;
 }
 
-// allocate might call allocatefreechunk
+// allocsc
 TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **pointer) {
     if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     else if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
-        *pointer = (void *)malloc(size);
-        return RVCOS_STATUS_SUCCESS;
+        if (size > 100000) {
+            return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
+        } else {
+            *pointer = (void *)malloc(size);
+            return RVCOS_STATUS_SUCCESS;
+        }
+        
     }
     else if (memPoolArray[memory] == NULL || memory == -1){
         return RVCOS_STATUS_ERROR_INVALID_ID;
@@ -1241,6 +1261,9 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
         prevAlloc = curAlloc;
         curAlloc = curAlloc->next;
     }
+    if (!curAlloc) {
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
 
     while(curFree) {
         if (newFree->base < curFree->base) {
@@ -1275,7 +1298,8 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
         newFree->next = curFree->next;
         DeallocateFreeChunk(curFree);
     }
-    mPool->size += curFree->size;
+    mPool->freeSize += curFree->size;
+
     return RVCOS_STATUS_SUCCESS;
 }
 
@@ -1315,15 +1339,19 @@ TStatus RVCMutexDelete(TMutexID mutex) {
 
 TStatus RVCMutexQuery(TMutexID mutex, TThreadIDRef ownerref) {
     if (ownerref == NULL) {
+        RVCWriteText1("null owner\n", 11);
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER; 
     }
     // If mutex is unlocked
-    if (mutexArray[mutex]->unlocked) {
-        return RVCOS_THREAD_ID_INVALID;
-    }
     // If mutex doesn't exist
-    if (mutexArray[mutex] == NULL) {
+    if (mutexArray[mutex] == NULL || mutex == -1) {
+        RVCWriteText1("noId ownver\n", 12);
         return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    if (mutexArray[mutex]->unlocked) {
+        RVCWriteText1("unlock owner\n", 14);
+        *ownerref = RVCOS_THREAD_ID_INVALID;
+        return RVCOS_STATUS_SUCCESS;
     }
     *ownerref = mutexArray[mutex] -> holder;
     return RVCOS_STATUS_SUCCESS;
@@ -1339,6 +1367,8 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
     if (timeout == RVCOS_TIMEOUT_IMMEDIATE) {
         if (mx->unlocked != 1) {
             return RVCOS_STATUS_FAILURE;
+        } else {
+            return RVCOS_STATUS_SUCCESS;
         }
     }
     // If timeout is specified as INFINITE, thread will block until mutex is acquired. 
@@ -1390,13 +1420,17 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
 // the running thread. Release of the mutex may cause another higher priority thread to be scheduled 
 // if it acquires the newly released mutex.  
 TStatus RVCMutexRelease(TMutexID mutex) {
+    RVCWriteText1("start releasing mx\n", 19);
     if (mutexArray[mutex] == NULL) {
+        RVCWriteText1("invalid release id\n", 19);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(mutexArray[mutex]->holder != get_tp()){ 
+        RVCWriteText1("holder not current\n", 19);
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
+        RVCWriteText1("releasing mx\n", 13);
         struct Mutex *mx = mutexArray[mutex];
         mx->holder = NULL;
         mx->unlocked = 1;
