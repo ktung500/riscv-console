@@ -39,6 +39,8 @@ struct MPCB** memPoolArray;
 volatile TMemoryPoolID global_mpid_nums = 1; // system memory pool is 0
 TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize);
 struct GCB** offscreenBufferArray;
+struct PCB** paletteArray;
+volatile TPaletteID global_pid_nums = 0;
 volatile TGraphicID global_gid_nums = 0;
 volatile int num_backgrounds = 0;   // 0-3
 volatile int num_large_sprites = 0; // 0-63
@@ -52,7 +54,12 @@ struct GCB{
     int height;
     int width;
     void *buffer;
-} ;
+};
+
+struct PCB{
+    TPaletteID pid;
+    void *buffer;
+};
 // all structs and globals taken from discussion-11-19
 // struct for color
 /*typedef struct{
@@ -175,6 +182,7 @@ FSSAllocator MPCBAllocator;
 FSSAllocator TCBAllocator;
 FSSAllocator MxAllocator;
 FSSAllocator GCBAllocator;
+FSSAllocator PCBAllocator;
 int SuspendAllocationOfFreeChunks = 0;
 FreeChunk InitialFreeChunks[8];
 
@@ -292,7 +300,13 @@ void DeallocateGCB(struct GCB* gcb){
     FSSDeallocate(&GCBAllocator,(void *)gcb);
 }
 
+struct PCB* AllocatePCB() {
+    return FSSAllocate(&PCBAllocator);
+}
 
+void DeallocatePCB(struct PCB* pcb){
+    FSSDeallocate(&PCBAllocator,(void *)pcb);
+}
 
 // Memory Pool End ---------------------------------------------------------------------------------------------------------------------------------------
 
@@ -568,6 +582,10 @@ TStatus RVCInitialize(uint32_t *gp) {
     for (int i = 0; i < offscreenBufferArraySize; i++) {
         offscreenBufferArray[i] = NULL;
     }
+    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&paletteArray);
+    for (int i = 0; i < 256; i++) {
+        paletteArray[i] = NULL;
+    }
     struct TCB* mainThread;  // initializing TCB of main thread
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&mainThread);
     FSSAllocatorInit(&MPCBAllocator, sizeof(struct MPCB));
@@ -597,6 +615,7 @@ TStatus RVCInitialize(uint32_t *gp) {
     idleThread->entry = (TThreadEntry)idle;
     uint8_t *idle_sb;
     //RVCMemoryPoolAllocate(0, 1024, (void**)&idleThread->stack_base);
+
     RVCMemoryPoolAllocate(0, 256, (void**)&idle_sb);
     idleThread->stack_base = idle_sb;
     idleThread->sp = init_Stack((uint32_t*)(idleThread->stack_base + 256), (TThreadEntry)(idleThread->entry), (uint32_t)(idleThread->param), idleThread->tid);
@@ -1479,23 +1498,23 @@ TStatus RVCGraphicDelete(TGraphicID gid){
 
 void convertPosAndDim(struct GCB* graphic,SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteID pid, int i){
     if(graphic->type == RVCOS_GRAPHIC_TYPE_FULL){
-        BackgroundControls[i].DXOffset = pos->DXPosition;
-        BackgroundControls[i].DYOffset = pos->DYPosition;
+        BackgroundControls[i].DXOffset = pos->DXPosition - 512;
+        BackgroundControls[i].DYOffset = pos->DYPosition - 288;
         BackgroundControls[i].DZ = pos->DZPosition;
         BackgroundControls[i].DPalette = pid;
     }
     else if(graphic->type == RVCOS_GRAPHIC_TYPE_LARGE){
         LargeSpriteControls[i].DHeight = dim->DHeight;
         LargeSpriteControls[i].DWidth = dim->DWidth;
-        LargeSpriteControls[i].DXOffset = pos->DXPosition;
-        LargeSpriteControls[i].DYOffset = pos->DYPosition;
+        LargeSpriteControls[i].DXOffset = pos->DXPosition - 64;
+        LargeSpriteControls[i].DYOffset = pos->DYPosition - 64;
         LargeSpriteControls[i].DPalette = pid;
     }
     else{
         SmallSpriteControls[i].DHeight = dim->DHeight;
         SmallSpriteControls[i].DWidth = dim->DWidth;
-        SmallSpriteControls[i].DXOffset = pos->DXPosition;
-        SmallSpriteControls[i].DYOffset = pos->DYPosition;
+        SmallSpriteControls[i].DXOffset = pos->DXPosition - 16;
+        SmallSpriteControls[i].DYOffset = pos->DYPosition - 16;
         SmallSpriteControls[i].DPalette = pid;
     }
 
@@ -1642,6 +1661,13 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
         graphic->buffer += dim->DWidth;
         src += srcwidth;
     }*/
+    if(offscreenBufferArray[gid] == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    else if(pos == NULL || dim == NULL || src == NULL || srcwidth < dim->DWidth){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    // need to account for the upcall once we implement it
     struct GCB* graphic = offscreenBufferArray[gid];
     int graphicSize = dim->DWidth * dim->DHeight;
     int *bufPosArray;
@@ -1654,9 +1680,6 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
         memcpy((int)graphic->buffer + buffPos, src[srcPos], 1);
     }
     return RVCOS_STATUS_SUCCESS;
-
-
-
     // // ouch ouch my brain hurts. I will come back to this later
     // for (int i = 0; i < graphicSize; i++) {
     //     int srcRow = srcOverlap[i] + 1 / (dim->DWidth) - 1;
@@ -1670,6 +1693,14 @@ TStatus RVCPaletteCreate(TPaletteIDRef pidref){
     if (pidref == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
+    //Remember that palettes may be  activated by more one than graphic, so you will need  to  maintain a reference list. 
+    struct PCB* newPalette = AllocatePCB();
+    newPalette->buffer = RVCMemoryAllocate(256*sizeof(SColor),newPalette->buffer);
+    newPalette->pid = global_pid_nums;
+    //newPalette->state = RVCOS_GRAPHIC_STATE_DEACTIVATED;  
+    paletteArray[global_pid_nums] = newPalette;
+    *pidref = global_pid_nums;
+    global_pid_nums++;
     return RVCOS_STATUS_SUCCESS;
 }
 
@@ -1678,9 +1709,27 @@ TStatus RVCPaletteDelete(TPaletteID pid){
 }
 
 TStatus RVCPaletteUpdate(TPaletteID pid, SColorRef cols, TPaletteIndex offset, uint32_t count){
+    if(paletteArray[pid] == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    else if(cols == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    else if(offset-count < 0 || offset+count > 256){
+        return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    // If the color palette is currently being used by a graphic with a pending activation, RVCOS_STATUS_ERROR_INVALID_STATE is returned. 
+    struct PCB* palette = paletteArray[pid];
+    palette->buffer += offset;
+    //for(int i = 0; i < count; i++){
+    memcpy(palette->buffer, cols, count);
+    //}
     return RVCOS_STATUS_SUCCESS;
 }
 
+TStatus RVCSetVideoUpcall(TThreadEntry upcall, void *param){
+    return RVCOS_STATUS_SUCCESS;
+}
 
 int main() {
     // see piazza post 981
