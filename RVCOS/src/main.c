@@ -53,7 +53,8 @@ struct GCB{
     TGraphicState state;
     int height;
     int width;
-    void *buffer;
+    //void *buffer;
+    uint8_t* buffer;
 };
 
 struct PCB{
@@ -1432,7 +1433,7 @@ TStatus RVCChangeVideoMode(TVideoMode mode){
     if (mode != RVCOS_VIDEO_MODE_TEXT && mode != RVCOS_VIDEO_MODE_GRAPHICS){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-    ModeControl->DMode = mode; // changes the mode, and then blocks til next video refresh
+    //ModeControl->DMode = mode; // changes the mode, and then blocks til next video refresh
     struct TCB* currentThread = threadArray[get_tp()];
     currentThread->buffer = NULL;
     currentThread->writesize = 0; // this will signal that its a video mode change instead of blocking for a write
@@ -1611,7 +1612,7 @@ TStatus RVCGraphicDeactivate(TGraphicID gid){
     return RVCOS_STATUS_SUCCESS;
 }
 
-int* determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth, int graphicSize, int **bufPosArray){
+/*int* determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth, int graphicSize, int **bufPosArray){
     int *overlap;
     int *buf;
     RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&overlap); //147456 = max pixels in graphic
@@ -1623,11 +1624,11 @@ int* determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDime
     int col = 0; // col in source
     int i = 0; // index of overlap array
     while(1) {
-        if (pos > (dim->DHeight-1 * srcwidth) + dim->DWidth-1) {
+        if (srcPos > (dim->DHeight-1 * srcwidth) + dim->DWidth-1) {
             break;
         }
         if (col <= dim->DWidth - 1 && row <= dim->DHeight - 1) {
-            overlap[i] = pos;
+            overlap[i] = srcPos;
             buf[i] = graphPos + topLeft;
             i++;
         }
@@ -1638,12 +1639,23 @@ int* determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDime
         } else {
             col++;
         }
-        pos++;
+        srcPos++;
     }
     *bufPosArray = buf;
     RVCMemoryPoolDeallocate(0, buf);
     return overlap;
+}*/
+
+void determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth, int graphicSize, int *srcBegin, int *destBegin){
+    *destBegin = (pos->DYPosition * graphic->width) + pos->DXPosition;
+    if(pos->DXPosition < 0 && pos->DYPosition < 0){
+        *srcBegin = -pos->DYPosition*srcwidth + -pos->DXPosition;
+    }
+    else{
+        *srcBegin = 0;
+    }
 }
+
 
 
 TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteIndex *src, uint32_t srcwidth){
@@ -1670,15 +1682,29 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
     // need to account for the upcall once we implement it
     struct GCB* graphic = offscreenBufferArray[gid];
     int graphicSize = dim->DWidth * dim->DHeight;
-    int *bufPosArray;
-    RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&bufPosArray);
-    int *srcOverlap = determineOverlap(graphic, pos, dim, srcwidth, graphicSize, &bufPosArray);
-    for(int i = 0; i< graphicSize; i++){
+    //int *bufPosArray;
+    //RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&bufPosArray);
+    int srcBegin, destBegin;
+    determineOverlap(graphic, pos, dim, srcwidth, graphicSize, &srcBegin, &destBegin);
+    graphic->buffer  = graphic->buffer + destBegin; 
+    src = src + srcBegin;
+    for(int i = 0; i< dim->DHeight; i++){
+        memcpy(graphic->buffer, src, dim->DWidth);  // memcpy not working
+        char buff[20];
+        uint8_t id = graphic->buffer[i];
+        //uint8_t id = src[i];
+        itoa(id, buff, 10);
+        RVCWriteText1(buff, 10);
+        graphic->buffer += graphic->width;
+        src += srcwidth;
+    }
+    
+    /*for(int i = 0; i< graphicSize; i++){
         int buffPos = bufPosArray[i];
         int srcPos = srcOverlap[i];
         // graphic->buffer = buffer + buffPos
         memcpy((int)graphic->buffer + buffPos, src[srcPos], 1);
-    }
+    }*/
     return RVCOS_STATUS_SUCCESS;
     // // ouch ouch my brain hurts. I will come back to this later
     // for (int i = 0; i < graphicSize; i++) {
