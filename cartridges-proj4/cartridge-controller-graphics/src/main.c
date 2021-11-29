@@ -46,6 +46,7 @@ int main() {
     for(int Index = 0; Index < SCREEN_WIDTH; Index++){
         PixeBuffer[Index] = CurrentColor;
     }
+    WriteString("second create called\n");
     RVCGraphicCreate(RVCOS_GRAPHIC_TYPE_SMALL,&Cursor);
     WriteString("second create done\n");
     Position.DXPosition = 0;

@@ -52,8 +52,8 @@ struct GCB{
     TGraphicState state;
     int height;
     int width;
-    //void *buffer;
-    uint8_t* buffer;
+    void *buffer;
+    //uint8_t* buffer;
 };
 
 struct PCB{
@@ -1233,7 +1233,7 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     if (memory == 0) {
-        // free(pointer)
+        free(pointer);
         return RVCOS_STATUS_SUCCESS;
     }
     if (memory == -1 || memPoolArray[memory] == NULL) {
@@ -1503,17 +1503,17 @@ TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
     }
     struct GCB* newGraphic = AllocateGCB();
     if(type == RVCOS_GRAPHIC_TYPE_FULL){
-        RVCMemoryAllocate(512*288,newGraphic->buffer);
+        RVCMemoryAllocate(512*288, &newGraphic->buffer);
         newGraphic->height = 512;
         newGraphic->width = 288;
     }
     else if(type == RVCOS_GRAPHIC_TYPE_LARGE){
-        RVCMemoryAllocate(64*64,newGraphic->buffer);
+        RVCMemoryAllocate(64*64, &newGraphic->buffer);
         newGraphic->height = 64;
         newGraphic->width = 64;
     }
     else{
-        RVCMemoryAllocate(16*16,newGraphic->buffer);
+        RVCMemoryAllocate(16*16, &newGraphic->buffer);
         newGraphic->height = 16;
         newGraphic->width = 16;
     }
@@ -1720,16 +1720,16 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
     //RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&bufPosArray);
     int srcBegin, destBegin;
     determineOverlap(graphic, pos, dim, srcwidth, graphicSize, &srcBegin, &destBegin);
-    graphic->buffer  = graphic->buffer + destBegin; 
+    TPaletteIndexRef graphic_buffer = &(graphic->buffer) + destBegin; 
     src = src + srcBegin;
     for(int i = 0; i< dim->DHeight; i++){
-        memcpy(graphic->buffer, src, dim->DWidth);  // memcpy not working
-        char buff[20];
-        uint8_t id = graphic->buffer[i];
+        memcpy(graphic_buffer, src, dim->DWidth);  // memcpy not working
+        //char buff[20];
+        //uint8_t id = graphic_buffer[i];
         //uint8_t id = src[i];
-        itoa(id, buff, 10);
-        RVCWriteText1(buff, 10);
-        graphic->buffer += graphic->width;
+        //itoa(id, buff, 10);
+        //RVCWriteText1(buff, 10);
+        graphic_buffer += graphic->width;
         src += srcwidth;
     }
     
