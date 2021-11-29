@@ -28,6 +28,7 @@ volatile char *VIDEO_MEMORY = (volatile char *)(0x50000000 + 0xFE800);  // taken
 volatile int numSleepers;
 volatile int sleeperCursor;
 volatile TThreadID global_tid_nums = 2;  // should only be 2-256
+volatile TMemoryPoolID global_mpid_nums = 1; // system memory pool is 0
 volatile int num_mutex = 0;
 struct TCB** threadArray;
 volatile int num_of_threads = 0;
@@ -35,7 +36,6 @@ volatile int num_of_buffers = 0;
 int threadArraySize = 256; // If it fills up, double the size
 int offscreenBufferArraySize = 1000; 
 struct MPCB** memPoolArray;
-volatile TMemoryPoolID global_mpid_nums = 1; // system memory pool is 0
 TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize);
 struct GCB** offscreenBufferArray;
 struct PCB** paletteArray;
@@ -189,7 +189,7 @@ FreeChunk InitialFreeChunks[8];
 FreeChunkRef AllocateFreeChunk(void);
 void DeallocateFreeChunk(FreeChunkRef chunk);
 
-void *MemoryAlloc(int size);
+//void *MemoryAlloc(int size);
 
 void FSSAllocatorInit(FSSAllocatorRef alloc, int size);
 void *FSSAllocate(FSSAllocatorRef alloc);
@@ -213,10 +213,10 @@ struct MPCB{
     FreeChunkRef allocList;
 };
 
-void *MemoryAlloc(int size){
-    AllocateFreeChunk();
-    return malloc(size);
-}
+// void *MemoryAlloc(int size){
+//     AllocateFreeChunk();
+//     return malloc(size);
+// }
 
 void FSSAllocatorInit(FSSAllocatorRef alloc, int size){
     alloc->count = 0;
@@ -226,7 +226,7 @@ void FSSAllocatorInit(FSSAllocatorRef alloc, int size){
 
 void *FSSAllocate(FSSAllocatorRef alloc){
     if(!alloc->count){ // If allocator count is 0 or NULL
-        alloc->firstFree = MemoryAlloc(alloc->structureSize * MIN_ALLOCATION_COUNT); // set first free of allocator
+        RVCMemoryAllocate(alloc->structureSize * MIN_ALLOCATION_COUNT, &alloc->firstFree); // set first free of allocator
         FreeChunkRef Current = alloc->firstFree;
         for(int Index = 0; Index < MIN_ALLOCATION_COUNT; Index++){
             if(Index + 1 < MIN_ALLOCATION_COUNT){
@@ -255,7 +255,8 @@ void FSSDeallocate(FSSAllocatorRef alloc, void *obj){
 FreeChunkRef AllocateFreeChunk(void){
     if(3 > FreeChunkAllocator.count && !SuspendAllocationOfFreeChunks){
         SuspendAllocationOfFreeChunks = 1;
-        uint8_t *Ptr = MemoryAlloc(FreeChunkAllocator.structureSize * MIN_ALLOCATION_COUNT);
+        uint8_t *Ptr;
+        RVCMemoryAllocate(FreeChunkAllocator.structureSize * MIN_ALLOCATION_COUNT, &Ptr);
         for(int Index = 0; Index < MIN_ALLOCATION_COUNT; Index++){
             FSSDeallocate(&FreeChunkAllocator,Ptr + Index * FreeChunkAllocator.structureSize);
         }
@@ -573,19 +574,20 @@ TStatus RVCInitialize(uint32_t *gp) {
     backgroundQ = createReadyQ(256);
     largeSpriteQ = createReadyQ(256);
     smallSpriteQ = createReadyQ(256);
-    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&mutexArray);
+    RVCMemoryPoolAllocate(0, 256 * sizeof(void*), (void**)&mutexArray);
     for (int i = 0; i < 256; i++) {
         mutexArray[i] = NULL;
     }
-    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&memPoolArray);
+    //struct MPCB*
+    RVCMemoryPoolAllocate(0, 256 * sizeof(void*), (void**)&memPoolArray);
     for (int i = 1; i < 256; i++) {
         memPoolArray[i] = NULL;
     }
-    RVCMemoryPoolAllocate(0, offscreenBufferArraySize * sizeof(void *), (void**)&offscreenBufferArray);
+    RVCMemoryPoolAllocate(0, offscreenBufferArraySize * sizeof(void*), (void**)&offscreenBufferArray);
     for (int i = 0; i < offscreenBufferArraySize; i++) {
         offscreenBufferArray[i] = NULL;
     }
-    RVCMemoryPoolAllocate(0, 256 * sizeof(void *), (void**)&paletteArray);
+    RVCMemoryPoolAllocate(0, 256 * sizeof(void*), (void**)&paletteArray);
     for (int i = 0; i < 256; i++) {
         paletteArray[i] = NULL;
     }
@@ -617,7 +619,6 @@ TStatus RVCInitialize(uint32_t *gp) {
     num_of_threads += 1;
     idleThread->entry = (TThreadEntry)idle;
     uint8_t *idle_sb;
-    //RVCMemoryPoolAllocate(0, 1024, (void**)&idleThread->stack_base);
 
     RVCMemoryPoolAllocate(0, 256, (void**)&idle_sb);
     idleThread->stack_base = idle_sb;
@@ -1097,7 +1098,8 @@ TStatus RVCTickCount(TTickRef tickref) {
     }
 }
 
-TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef memoryref) {
+TStatus RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef memoryref) {
+    RVCWriteText1("mpool create\n", 13);
     if (base == NULL || size < 128) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
@@ -1123,7 +1125,7 @@ TStatus  RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef 
 }
 
 TStatus RVCMemoryPoolDelete(TMemoryPoolID memory) {
-
+    RVCWriteText1("mpool delete\n", 13);
     if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
@@ -1131,15 +1133,13 @@ TStatus RVCMemoryPoolDelete(TMemoryPoolID memory) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     struct MPCB* curPool = memPoolArray[memory];
-    // if (curPool->freeSize != curPool->size){
-    //     return  RVCOS_STATUS_ERROR_INVALID_STATE;
-    // }
     if (curPool->allocList != NULL) {
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
         global_mpid_nums--;
         RVCMemoryPoolDeallocate(0, curPool);
+        curPool = NULL;
         memPoolArray[memory] = NULL;
         return RVCOS_STATUS_SUCCESS;
     }
@@ -1153,7 +1153,7 @@ TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
     }
     else if (memory == 0) {
         //*bytesleft = memPoolArray[0]->size;
-        *bytesleft = 100000;
+        *bytesleft = 1000000;
         return RVCOS_STATUS_SUCCESS;
     }
     else if (memory == -1 || memPoolArray[memory] == NULL) { // if memory is invalid memory pool
@@ -1165,12 +1165,14 @@ TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
 }
 
 // allocsc
+// check for looping lists
 TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **pointer) {
     if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     else if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
-        if (size > 100000) {
+        if (size > 1000000) {
+            RVCWriteText1("insuff resrc mempoolalloc\n", 26);
             return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
         } else {
             *pointer = (void *)malloc(size);
@@ -1179,12 +1181,15 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
         
     }
     else if (memPoolArray[memory] == NULL || memory == -1){
+        RVCWriteText1("null resrc mempoolalloc\n", 24);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(memPoolArray[memory]->freeSize < size){
+        RVCWriteText1("non-sys insuff resrc mempoolalloc\n", 33);
         return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
     }
     else{
+        //RVCWriteText1("mpool alloc\n", 12);
         struct MPCB *currPool = memPoolArray[memory];
         uint32_t alloc_size = ((size + 63)/64) * 64;
         FreeChunkRef cur = currPool->firstFree;
@@ -1192,26 +1197,27 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
         while(cur) {
             if (alloc_size <= cur->size) {
                 
-                if (alloc_size == cur->size) {
+                if (alloc_size == cur->size) { // allocate entire size
                     if (prev) {
                         prev->next = cur->next;
                     } else {
                         currPool->firstFree = cur->next;
                     }
                     FreeChunkRef tmp = currPool->allocList; // add newnode to alloc
-                    cur -> next = tmp;                      // move cur
+                    cur -> next = tmp;                      // move cur from free to alloc list
                     currPool -> allocList = cur;             // alloc list
                     *pointer = cur->base;               // return ptr cur->base
                     currPool->freeSize -= alloc_size;
+                    currPool->firstFree == NULL;
                     return RVCOS_STATUS_SUCCESS;
 
                 }
                 else {
-                    FreeChunk *newnode = MemoryAlloc(alloc_size);
+                    FreeChunk *newnode = AllocateFreeChunk();
                     newnode->base = cur->base;
                     newnode->size = alloc_size;
                     cur->base += alloc_size;
-                    cur->size -= alloc_size;
+                    //curPool->size -= alloc_size;
 
                     FreeChunkRef tmp = currPool->allocList; // add newnode to alloc
                     newnode -> next = tmp;
@@ -1224,16 +1230,18 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
             prev = cur;
             cur = cur->next;
         }
+
         return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
     }
 }
 
 TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
+    //RVCWriteText1("mpool dealloc\n", 14);
     if (pointer == NULL) { // Or if memory is invalid memory pool
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     if (memory == 0) {
-        // free(pointer)
+        free(pointer);
         return RVCOS_STATUS_SUCCESS;
     }
     if (memory == -1 || memPoolArray[memory] == NULL) {
@@ -1248,11 +1256,23 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
     while (curAlloc) {
         if (curAlloc->base == pointer) {
             // found in alloclist
-            if (prevAlloc) {
-                prevAlloc->next = curAlloc->next;
+            if (prevAlloc) { // If prevAlloc exists (its not first one chunk in freelist)
+                if (curAlloc->next) {
+                   prevAlloc->next = curAlloc->next;
+                } else {
+                   prevAlloc->next = NULL;
+                }
+                //prevAlloc->next = curAlloc->next;
+                
             }
-            else {
-                mPool->allocList = curAlloc->next;
+            else { // the chunk found is first in freelist
+                if (curAlloc->next) {
+                   mPool->allocList = curAlloc->next;
+                } else {
+                   mPool->allocList = NULL;
+                }
+                //mPool->allocList = curAlloc->next;
+                
             }
              // remove node from alloclist
             newFree = curAlloc;
@@ -1262,12 +1282,13 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
         curAlloc = curAlloc->next;
     }
     if (!curAlloc) {
+        RVCWriteText1("null curalloc\n", 14);
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
 
-    while(curFree) {
-        if (newFree->base < curFree->base) {
-            newFree->next = curFree;
+    while(curFree) { //trying to add newFree back to freelist
+        if (newFree->base < curFree->base) { // if the deallocating chunk base is to left of freelist chunk base
+            newFree->next = curFree;    // deallocating chunk's next is freelist chunk
             if (prevFree) {
                 prevFree->next = newFree;
             } else {
@@ -1280,9 +1301,10 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
     }
     if (!curFree) {
         if (prevFree) {
-            prevFree->next = newFree;
+            prevFree->next = newFree; // (list is full except for the back) insert at end of list
         } else {
-            mPool->firstFree = newFree;
+            mPool->firstFree = newFree; // (list is empty) insert as first
+            newFree->next = NULL;
         }
         // didn't insert newfree into freelist
         // either freelist empty or ran through entire list
@@ -1327,12 +1349,15 @@ TStatus RVCMutexDelete(TMutexID mutex) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(mutexArray[mutex]->unlocked == 0){
+        RVCWriteText1("locked in delete\n", 17);
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
-        RVCMemoryPoolDeallocate(0, mutexArray[mutex]);
+        struct Mutex *mx = mutexArray[mutex];
+        RVCMemoryPoolDeallocate(0, mx);
+        mx = NULL;
         mutexArray[mutex] = NULL;
-        num_mutex--;
+        //num_mutex--;
         return RVCOS_STATUS_SUCCESS;   
     }
 }
@@ -1420,17 +1445,16 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
 // the running thread. Release of the mutex may cause another higher priority thread to be scheduled 
 // if it acquires the newly released mutex.  
 TStatus RVCMutexRelease(TMutexID mutex) {
-    RVCWriteText1("start releasing mx\n", 19);
     if (mutexArray[mutex] == NULL) {
-        RVCWriteText1("invalid release id\n", 19);
+        //RVCWriteText1("invalid release id\n", 19);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(mutexArray[mutex]->holder != get_tp()){ 
-        RVCWriteText1("holder not current\n", 19);
+        //RVCWriteText1("holder not current\n", 19);
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
-        RVCWriteText1("releasing mx\n", 13);
+        //RVCWriteText1("releasing mx\n", 13);
         struct Mutex *mx = mutexArray[mutex];
         mx->holder = NULL;
         mx->unlocked = 1;
@@ -1762,7 +1786,8 @@ TStatus RVCPaletteCreate(TPaletteIDRef pidref){
     }
     //Remember that palettes may be  activated by more one than graphic, so you will need  to  maintain a reference list. 
     struct PCB* newPalette = AllocatePCB();
-    newPalette->buffer = RVCMemoryAllocate(256*sizeof(SColor),newPalette->buffer);
+    //newPalette->buffer = 
+    RVCMemoryAllocate(256*sizeof(SColor),&newPalette->buffer);
     newPalette->pid = global_pid_nums;
     //newPalette->state = RVCOS_GRAPHIC_STATE_DEACTIVATED;  
     paletteArray[global_pid_nums] = newPalette;
