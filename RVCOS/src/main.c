@@ -52,7 +52,7 @@ struct GCB{
     TGraphicState state;
     int height;
     int width;
-    void *buffer;
+    TPaletteIndex *buffer;
     //uint8_t* buffer;
 };
 
@@ -1491,7 +1491,7 @@ TStatus RVCChangeVideoMode(TVideoMode mode){
     if (mode != RVCOS_VIDEO_MODE_TEXT && mode != RVCOS_VIDEO_MODE_GRAPHICS){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-    //ModeControl->DMode = mode; // changes the mode, and then blocks til next video refresh
+    ModeControl->DMode = mode; // changes the mode, and then blocks til next video refresh
     struct TCB* currentThread = threadArray[get_tp()];
     currentThread->buffer = NULL;
     currentThread->writesize = 0; // this will signal that its a video mode change instead of blocking for a write
@@ -1527,17 +1527,17 @@ TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
     }
     struct GCB* newGraphic = AllocateGCB();
     if(type == RVCOS_GRAPHIC_TYPE_FULL){
-        RVCMemoryAllocate(512*288,newGraphic->buffer);
+        RVCMemoryAllocate(512*288,&newGraphic->buffer);
         newGraphic->height = 512;
         newGraphic->width = 288;
     }
     else if(type == RVCOS_GRAPHIC_TYPE_LARGE){
-        RVCMemoryAllocate(64*64,newGraphic->buffer);
+        RVCMemoryAllocate(64*64,&newGraphic->buffer);
         newGraphic->height = 64;
         newGraphic->width = 64;
     }
     else{
-        RVCMemoryAllocate(16*16,newGraphic->buffer);
+        RVCMemoryAllocate(16*16,&newGraphic->buffer);
         newGraphic->height = 16;
         newGraphic->width = 16;
     }
@@ -1667,6 +1667,13 @@ TStatus RVCGraphicActivate(TGraphicID gid, SGraphicPositionRef pos, SGraphicDime
 }
 
 TStatus RVCGraphicDeactivate(TGraphicID gid){
+    if(offscreenBufferArray[gid] == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    else if(offscreenBufferArray[gid]->state == RVCOS_GRAPHIC_STATE_ACTIVATED || offscreenBufferArray[gid]->state == RVCOS_GRAPHIC_STATE_PENDING){
+        return RVCOS_STATUS_ERROR_INVALID_STATE;
+    }
+    offscreenBufferArray[gid]->state = RVCOS_GRAPHIC_STATE_DEACTIVATED;
     return RVCOS_STATUS_SUCCESS;
 }
 
@@ -1708,6 +1715,7 @@ void determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDime
     *destBegin = (pos->DYPosition * graphic->width) + pos->DXPosition;
     if(pos->DXPosition < 0 && pos->DYPosition < 0){
         *srcBegin = -pos->DYPosition*srcwidth + -pos->DXPosition;
+        //*destBegin = 0;
     }
     else{
         *srcBegin = 0;
@@ -1744,33 +1752,61 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
     //RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&bufPosArray);
     int srcBegin, destBegin;
     determineOverlap(graphic, pos, dim, srcwidth, graphicSize, &srcBegin, &destBegin);
-    TPaletteIndex *graphic_buffer = graphic->buffer + destBegin; 
-    //graphic->buffer  = graphic->buffer + destBegin; 
-    //src = src + srcBegin;
-    memcpy(graphic_buffer, src, 1);
-    char buff[20];
-    uint8_t id = graphic_buffer[0];
+
+    //TPaletteIndex *graphic_buffer = graphic->buffer + destBegin; 
+
+    src = src + srcBegin;
+
+    //TPaletteIndexRef offscreenBuffer;
+    //RVCMemoryAllocate(512*288, offscreenBuffer);
+    TPaletteIndex *buffer = graphic->buffer + (pos->DYPosition * graphic->width) + pos->DXPosition;// + destBegin;//offscreenBuffer;// + destBegin;
+    for(int i = 0; i < dim->DHeight; i++){
+        memcpy(buffer, src, dim->DWidth);
+        char buff[20];
+        //uint8_t id = buffer[i];
+        uint8_t id = src[i];
+        itoa(id, buff, 10);
+        RVCWriteText1(buff, 2);
+        buffer += graphic->width;
+        src += srcwidth;
+    }
+    //graphic->buffer = offscreenBuffer;
+
+    // does not cause an mcause 5 starts here ----------------------------------------------------------------
+
+    //memcpy(graphic_buffer, src, 1);
+    //char buff[20];
+    //uint8_t id = graphic_buffer[0];
     //uint8_t id = src[1];
-    itoa(id, buff, 10);
-    RVCWriteText1(buff, 1);
+    //itoa(id, buff, 10);
+    //RVCWriteText1(buff, 1);
+
+    // ends here ---------------------------------------------------------------------------------------------
+
+    // causes mcause 5
+
     /*for(int i = 0; i< dim->DHeight; i++){
         memcpy(graphic_buffer, src, dim->DWidth);  // memcpy not working
         char buff[20];
-        //uint8_t id = graphic_buffer[i];
-        uint8_t id = src[i];
+        uint8_t id = graphic_buffer[i];
+        //uint8_t id = src[i];
         itoa(id, buff, 10);
         RVCWriteText1(buff, 10);
         graphic_buffer += graphic->width;
         src += srcwidth;
     }*/
-    
+
+    //causes mcause 5
+
     /*for(int i = 0; i< graphicSize; i++){
         int buffPos = bufPosArray[i];
         int srcPos = srcOverlap[i];
         // graphic->buffer = buffer + buffPos
         memcpy((int)graphic->buffer + buffPos, src[srcPos], 1);
     }*/
+
     return RVCOS_STATUS_SUCCESS;
+
     // // ouch ouch my brain hurts. I will come back to this later
     // for (int i = 0; i < graphicSize; i++) {
     //     int srcRow = srcOverlap[i] + 1 / (dim->DWidth) - 1;
@@ -1812,14 +1848,16 @@ TStatus RVCPaletteUpdate(TPaletteID pid, SColorRef cols, TPaletteIndex offset, u
     }
     // If the color palette is currently being used by a graphic with a pending activation, RVCOS_STATUS_ERROR_INVALID_STATE is returned. 
     struct PCB* palette = paletteArray[pid];
-    palette->buffer += offset;
+    SColorRef palette_offset = palette->buffer + offset;
+    //palette->buffer += offset;
     //for(int i = 0; i < count; i++){
-    memcpy(palette->buffer, cols, count);
+    memcpy(palette_offset, cols, count);
     //}
     return RVCOS_STATUS_SUCCESS;
 }
 
 TStatus RVCSetVideoUpcall(TThreadEntry upcall, void *param){
+
     return RVCOS_STATUS_SUCCESS;
 }
 
