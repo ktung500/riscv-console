@@ -1712,14 +1712,37 @@ TStatus RVCGraphicDeactivate(TGraphicID gid){
 }*/
 
 void determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth, int graphicSize, int *srcBegin, int *destBegin){
-    *destBegin = (pos->DYPosition * graphic->width) + pos->DXPosition;
-    if(pos->DXPosition < 0 && pos->DYPosition < 0){
-        *srcBegin = -pos->DYPosition*srcwidth + -pos->DXPosition;
-        //*destBegin = 0;
+    int x;
+    int y;
+    x = pos->DXPosition;
+    y = pos->DYPosition;
+    int srcX = 0;
+    int srcY = 0;
+    if (pos->DXPosition < 0) {
+        x = 0;
+        srcX = pos->DXPosition * -1;
+    } 
+    if (pos->DYPosition < 0) {
+        y = 0;
+        srcY = pos->DYPosition * -1;
     }
-    else{
-        *srcBegin = 0;
-    }
+    *destBegin = (y * graphic->width) + x;
+    *srcBegin = (srcY * srcwidth) + srcX;
+
+    // ex) -2, -2 = 0 src = 0
+    // ex) 6, -3 = 0 * width + 6 = 6
+    // src = 3 * 6 + 0= 18
+
+
+
+
+    // if(pos->DXPosition < 0 && pos->DYPosition < 0){
+    //     *srcBegin = -pos->DYPosition*srcwidth + -pos->DXPosition;
+    //     //*destBegin = 0;
+    // }
+    // else{
+    //     *srcBegin = 0;
+    // }
 }
 
 
