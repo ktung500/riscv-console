@@ -52,8 +52,8 @@ struct GCB{
     TGraphicState state;
     int height;
     int width;
-    //void *buffer;
-    uint8_t* buffer;
+    void *buffer;
+    //uint8_t* buffer;
 };
 
 struct PCB{
@@ -1138,7 +1138,7 @@ TStatus RVCMemoryPoolDelete(TMemoryPoolID memory) {
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
-        global_mpid_nums;
+        global_mpid_nums--;
         RVCMemoryPoolDeallocate(0, curPool);
         memPoolArray[memory] = NULL;
         return RVCOS_STATUS_SUCCESS;
@@ -1720,18 +1720,25 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
     //RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&bufPosArray);
     int srcBegin, destBegin;
     determineOverlap(graphic, pos, dim, srcwidth, graphicSize, &srcBegin, &destBegin);
-    graphic->buffer  = graphic->buffer + destBegin; 
-    src = src + srcBegin;
-    for(int i = 0; i< dim->DHeight; i++){
-        memcpy(graphic->buffer, src, dim->DWidth);  // memcpy not working
+    TPaletteIndex *graphic_buffer = graphic->buffer + destBegin; 
+    //graphic->buffer  = graphic->buffer + destBegin; 
+    //src = src + srcBegin;
+    memcpy(graphic_buffer, src, 1);
+    char buff[20];
+    uint8_t id = graphic_buffer[0];
+    //uint8_t id = src[1];
+    itoa(id, buff, 10);
+    RVCWriteText1(buff, 1);
+    /*for(int i = 0; i< dim->DHeight; i++){
+        memcpy(graphic_buffer, src, dim->DWidth);  // memcpy not working
         char buff[20];
-        uint8_t id = graphic->buffer[i];
-        //uint8_t id = src[i];
+        //uint8_t id = graphic_buffer[i];
+        uint8_t id = src[i];
         itoa(id, buff, 10);
         RVCWriteText1(buff, 10);
-        graphic->buffer += graphic->width;
+        graphic_buffer += graphic->width;
         src += srcwidth;
-    }
+    }*/
     
     /*for(int i = 0; i< graphicSize; i++){
         int buffPos = bufPosArray[i];
