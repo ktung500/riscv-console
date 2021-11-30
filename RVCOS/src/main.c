@@ -4,9 +4,6 @@
 #include "RVCOS.h"
 
 
-//#define DEBUG(str)    WriteString2((str),strlen(str))
-
-
 volatile int global;
 volatile int cursor; // used for global cursor
 volatile int tick_count;
@@ -44,9 +41,17 @@ volatile TGraphicID global_gid_nums = 0;
 volatile int num_backgrounds = 0;   // 0-3
 volatile int num_large_sprites = 0; // 0-63
 volatile int num_small_sprites = 0; //0-127
+
+volatile int upcallFlag = 0;
+typedef void (*TUpcallPointer)(void *param);
+volatile TUpcallPointer UpcallPointer = NULL;
+volatile void *UpcallParam = NULL;
+
+
 // Video Graphic Start -----------------------------------------------------------------------------------------------------------------------------
 
 struct GCB{
+    int dirty;
     TGraphicID gid;
     TGraphicType type;
     TGraphicState state;
@@ -60,15 +65,8 @@ struct PCB{
     TPaletteID pid;
     void *buffer;
 };
-// all structs and globals taken from discussion-11-19
-// struct for color
-/*typedef struct{
-    uint32_t DBlue : 8;
-    uint32_t DGreen : 8;
-    uint32_t DRed : 8;
-    uint32_t DAlpha : 8;
-} SColor, *SColorRef;*/   // already defined in RVCOS.h
 
+// all structs and globals taken from discussion-11-19
 // struct for the controls of a large sprite
 typedef struct {
     uint32_t DPalette : 2;
@@ -156,12 +154,7 @@ struct Mutex{
 
 // Memory Pool Start -----------------------------------------------------------------------------------------------------------------------------
 
-// typedef struct FSSNode_TAG FSSNode, *FSSNodeRef;
-
-// struct FSSNode_TAG{
-//     struct FSSNode_TAG *next;
-// };
-
+// taken from discussion-11-05 code
 typedef struct FreeChunk_TAG FreeChunk, *FreeChunkRef;
 
 struct FreeChunk_TAG{
@@ -189,20 +182,9 @@ FreeChunk InitialFreeChunks[8];
 FreeChunkRef AllocateFreeChunk(void);
 void DeallocateFreeChunk(FreeChunkRef chunk);
 
-//void *MemoryAlloc(int size);
-
 void FSSAllocatorInit(FSSAllocatorRef alloc, int size);
 void *FSSAllocate(FSSAllocatorRef alloc);
 void FSSDeallocate(FSSAllocatorRef alloc, void *obj);
-
-// typedef struct FreeNode_TAG FreeNode, *FreeNodeRef;
-
-// struct FreeNode_TAG{
-//     struct FreeNode_TAG *next;
-//     //struct FreeNode_TAG *prev;
-//     uint8_t *base;
-//     uint32_t size;
-// };
 
 struct MPCB{
     TMemoryPoolID mpid;
@@ -212,11 +194,6 @@ struct MPCB{
     FreeChunkRef firstFree;
     FreeChunkRef allocList;
 };
-
-// void *MemoryAlloc(int size){
-//     AllocateFreeChunk();
-//     return malloc(size);
-// }
 
 void FSSAllocatorInit(FSSAllocatorRef alloc, int size){
     alloc->count = 0;
@@ -311,7 +288,6 @@ void DeallocatePCB(struct PCB* pcb){
 
 // Memory Pool End ---------------------------------------------------------------------------------------------------------------------------------------
 
-
 struct ReadyQ* createReadyQ(int size){
     struct ReadyQ *Q;
     RVCMemoryPoolAllocate(0, sizeof(struct ReadyQ), (void**)&Q);
@@ -321,7 +297,6 @@ struct ReadyQ* createReadyQ(int size){
     RVCMemoryPoolAllocate(0, sizeof(int)*size, (void**)&Q->queue);
     return Q;
 }
-
 
 struct PrioQ {
     int size;
@@ -471,7 +446,6 @@ struct TCB{
     uint32_t *gp;
     TThreadState state; // different states: running, ready, dead, waiting, created
     TThreadPriority priority; // different priorities: high, normal, low
-    //int pid;
     uint32_t *sp;
     TMemorySize memsize;
     TThreadEntry entry;
@@ -541,25 +515,14 @@ void* skeleton(TThreadID thread_id){
     void* param = currThread->param;
     asm volatile ("csrw mie, %0" : : "r"(0x888));   // Enable all interrupt soruces: csr_write_mie(0x888);
     asm volatile ("csrsi mstatus, 0x8");            // Global interrupt enable: csr_enable_interrupts()
-    //MTIMECMP_LOW = 1;
-    //MTIMECMP_HIGH = 0;
-    // call entry(param) but make sure to switch the gp right before the call
-
-
     currThread->ret_val = call_th_ent(param, entry, app_global_p);
     asm volatile ("csrci mstatus, 0x8");
     RVCThreadTerminate(thread_id, currThread->ret_val); //(TThreadReturn)
-    // Disable intterupts before terminate
-    //Threadterminate;
 
 }
 
 TStatus RVCInitialize(uint32_t *gp) {
     FSSAllocatorInit(&FreeChunkAllocator, sizeof(FreeChunk));
-    // struct MPCB* systemPool;
-    // //RVCMemoryPoolAllocate(0, sizeof(struct MPCB), (void**)&systemPool);
-    // systemPool->size = 10000;
-    // memPoolArray[0] = systemPool;
     for(int Index = 0; Index < 8; Index++){
         DeallocateFreeChunk(&InitialFreeChunks[Index]);
     }
@@ -578,7 +541,6 @@ TStatus RVCInitialize(uint32_t *gp) {
     for (int i = 0; i < 256; i++) {
         mutexArray[i] = NULL;
     }
-    //struct MPCB*
     RVCMemoryPoolAllocate(0, 256 * sizeof(void*), (void**)&memPoolArray);
     for (int i = 1; i < 256; i++) {
         memPoolArray[i] = NULL;
@@ -597,19 +559,13 @@ TStatus RVCInitialize(uint32_t *gp) {
     FSSAllocatorInit(&TCBAllocator, sizeof(struct TCB));
     FSSAllocatorInit(&MxAllocator, sizeof(struct Mutex));
     
-    // FSSAllocator TCBPool;
-    // FSSAllocatorInit(&TCBPool, sizeof(struct TCB));
-    
     mainThread->tid = 0;
     mainThread->state = RVCOS_THREAD_STATE_RUNNING;
     mainThread->priority = RVCOS_THREAD_PRIORITY_NORMAL;
-    //mainThread->pid = -1; // main thread has no parent so set to -1
     threadArray[0] = mainThread;
     num_of_threads += 1;
     set_tp(mainThread->tid);
 
-
-    
     struct TCB* idleThread;
     RVCMemoryPoolAllocate(0, sizeof(struct TCB), (void**)&idleThread);
     idleThread->tid = 1;
@@ -628,7 +584,6 @@ TStatus RVCInitialize(uint32_t *gp) {
     InitPointers(); 
     memcpy((void *)BackgroundPalettes[0],RVCOPaletteDefaultColors,256 * sizeof(SColor)); // loads the colors from DefaultPalette.c in Background Palette 0 
     memcpy((void *)SpritePalettes[0],RVCOPaletteDefaultColors,256 * sizeof(SColor)); // load the colors from DefaultPalette.c in Sprite Palette 0
-
 
     app_global_p = gp;
     if (app_global_p == 0) {
@@ -658,124 +613,118 @@ TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize){
 
 
 TStatus RVCWriteText1(const TTextCharacter *buffer, TMemorySize writesize){
-    //if (buffer == NULL){
-    //   return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
-    //}
-    //else{
-        //write out writesize characters to the location specified by buffer
-        if (cursor < 2304) { // 2304 = 64 columns x 36 rows
+    if (cursor < 2304) { // 2304 = 64 columns x 36 rows
 
-            for (int i = 0; i < (int)writesize; i++) {
+        for (int i = 0; i < (int)writesize; i++) {
+            char c = buffer[i];
+            if (c == '\x1B') {
+                i++;
+                if (i > (int)writesize) {
+                    continue;
+                }
                 char c = buffer[i];
-                if (c == '\x1B') {
+                if (c == '[') {
                     i++;
                     if (i > (int)writesize) {
                         continue;
                     }
                     char c = buffer[i];
-                    if (c == '[') {
-                        i++;
-                        if (i > (int)writesize) {
-                            continue;
+                    if (c == 'A') {
+                        if (cursor >= 0x40) {
+                            cursor -= 0x40;
                         }
-                        char c = buffer[i];
-                        if (c == 'A') {
-                            if (cursor >= 0x40) {
-                                cursor -= 0x40;
+                    } else if (c == 'B') {
+                        cursor += 0x40;
+                        if (cursor >= 2304) {
+                            memmove(VIDEO_MEMORY, VIDEO_MEMORY + 0x40, 64*35);
+                            memset(VIDEO_MEMORY + 64*35, 0, 64);
+                            cursor -= 0x40;
+                        }
+                    } else if (c == 'C') {
+                        if (cursor % 0x40 != 63) { // only move right if not at the right of screen
+                            cursor += 1;
+                        }
+                    } else if (c == 'D') {
+                        //if (cursor % 0x40 != 0) { // only move left if not at left of screen
+                            cursor -= 1;
+                    } else if (c == 'H') {
+                        cursor = 0;
+                    } else if (isdigit(c)){
+                        int skip = 0;
+                        int ln = (int)c - '0';
+                        if (c == '2') {
+                            skip = 1;
+                            i++;
+                            c = buffer[i];
+                            if (c == 'J') {
+                                // Erase screen (zero out video_memory)
+                                memset(VIDEO_MEMORY, 0, 2304);
+                                continue;
+                            } else {
+                                //VIDEO_MEMORY[50] = 'A';
                             }
-                        } else if (c == 'B') {
-                            cursor += 0x40;
-                            if (cursor >= 2304) {
-                                memmove(VIDEO_MEMORY, VIDEO_MEMORY + 0x40, 64*35);
-                                memset(VIDEO_MEMORY + 64*35, 0, 64);
-                                cursor -= 0x40;
+                        }
+                        //VIDEO_MEMORY[52] = '4';
+                        if (!skip) {
+                            i++;
+                            c = buffer[i];
+                        }
+                        // 2 digit line number
+                        if (isdigit(c)) {
+                            //VIDEO_MEMORY[52] = c;
+                            ln = ln * 10 + (int)c - '0';
+                            i++;
+                            if (i > (int)writesize) {
+                                break;
                             }
-                        } else if (c == 'C') {
-                            if (cursor % 0x40 != 63) { // only move right if not at the right of screen
-                                cursor += 1;
+                            c = buffer[i];
+                        }
+                        // problem if H or ln is more than 1 char
+                        if (c == ';') {
+                            //VIDEO_MEMORY[54] = 'B';
+                            i++;
+                            if (i > (int)writesize) {
+                                continue;
                             }
-                        } else if (c == 'D') {
-                            //if (cursor % 0x40 != 0) { // only move left if not at left of screen
-                                cursor -= 1;
-                        } else if (c == 'H') {
-                            cursor = 0;
-                        } else if (isdigit(c)){
-                            int skip = 0;
-                            int ln = (int)c - '0';
-                            if (c == '2') {
-                                skip = 1;
-                                i++;
-                                c = buffer[i];
-                                if (c == 'J') {
-                                    // Erase screen (zero out video_memory)
-                                    memset(VIDEO_MEMORY, 0, 2304);
-                                    continue;
-                                } else {
-                                    //VIDEO_MEMORY[50] = 'A';
-                                }
+                            c = buffer[i];
+                            int col = (int)c - '0';
+                            i++;
+                            if (i > (int)writesize) {
+                                continue;
                             }
-                            //VIDEO_MEMORY[52] = '4';
-                            if (!skip) {
-                                i++;
-                                c = buffer[i];
-                            }
-                            // 2 digit line number
+                            c = buffer[i];
+                            // 2 digit column number
                             if (isdigit(c)) {
-                                //VIDEO_MEMORY[52] = c;
-                                ln = ln * 10 + (int)c - '0';
+                                col = col * 10 + (int)c - '0';
                                 i++;
-                                if (i > (int)writesize) {
-                                    break;
-                                }
                                 c = buffer[i];
                             }
-                            // problem if H or ln is more than 1 char
-                            if (c == ';') {
-                                //VIDEO_MEMORY[54] = 'B';
-                                i++;
-                                if (i > (int)writesize) {
-                                    continue;
-                                }
-                                c = buffer[i];
-                                int col = (int)c - '0';
-                                i++;
-                                if (i > (int)writesize) {
-                                    continue;
-                                }
-                                c = buffer[i];
-                                // 2 digit column number
-                                if (isdigit(c)) {
-                                    col = col * 10 + (int)c - '0';
-                                    i++;
-                                    c = buffer[i];
-                                }
-                                if (c == 'H') {
-                                    cursor = (64 * ln) + col;
-                                }
+                            if (c == 'H') {
+                                cursor = (64 * ln) + col;
                             }
                         }
                     }
-                }
-                else if (c == '\n') {
-                    cursor += 0x40;
-                    cursor = cursor & ~0x3F;
-                    if (cursor >= 2304) {
-                        memmove(VIDEO_MEMORY, VIDEO_MEMORY + 0x40, 64*35);
-                        memset(VIDEO_MEMORY + 64*35, 0, 64);
-                        cursor -= 0x40;
-                    }
-                } else if(c == '\b') {
-                    cursor -= 1;
-                } else {
-                    VIDEO_MEMORY[cursor] = c;
-                    cursor++;
                 }
             }
+            else if (c == '\n') {
+                cursor += 0x40;
+                cursor = cursor & ~0x3F;
+                if (cursor >= 2304) {
+                    memmove(VIDEO_MEMORY, VIDEO_MEMORY + 0x40, 64*35);
+                    memset(VIDEO_MEMORY + 64*35, 0, 64);
+                    cursor -= 0x40;
+                }
+            } else if(c == '\b') {
+                cursor -= 1;
+            } else {
+                VIDEO_MEMORY[cursor] = c;
+                cursor++;
+            }
         }
-        // if there are errors try casting (int)
-        return RVCOS_STATUS_SUCCESS;
     }
-//}
+    // if there are errors try casting (int)
+    return RVCOS_STATUS_SUCCESS;
+}
 
 // taken from CartridgeThreadWait
 void WriteString(const char *str){
@@ -802,7 +751,6 @@ TStatus RVCThreadCreate(TThreadEntry entry, void *param, TMemorySize memsize,
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     else{
-        //void* newThreadStack[memsize];
         if(num_of_threads > threadArraySize){  // number of threads exceeeds current size of array
             // double size
             threadArraySize *= 2;
@@ -870,7 +818,6 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
     }
     else{
         actThread->sp = init_Stack((uint32_t *)(actThread->stack_base + actThread->memsize), (TThreadEntry)skeleton, actThread->tid, thread);
-        //currThread->sp = init_Stack((uint32_t*)(currThread->stack_base + currThread->memsize), &skeleton, currThread->tid, thread); // initializes stack/ activates thread
         actThread->state = RVCOS_THREAD_STATE_READY;
         enqueueThread(actThread);
         struct TCB* currentThread = threadArray[get_tp()];
@@ -879,7 +826,6 @@ TStatus RVCThreadActivate(TThreadID thread){   // we handle scheduling and conte
             enqueueThread(currentThread);
             schedule();
         }
-        // call scheduler
         return RVCOS_STATUS_SUCCESS;
     }
 }
@@ -904,12 +850,10 @@ TStatus RVCThreadTerminate(TThreadID thread, TThreadReturn returnval) {
     if (currThread->state == RVCOS_THREAD_STATE_DEAD || currThread->state == RVCOS_THREAD_STATE_CREATED){
         return  RVCOS_STATUS_ERROR_INVALID_STATE;
     }
-    //RVCWriteText1("set to dead\n", 12);
     currThread->state = RVCOS_THREAD_STATE_DEAD;
     currThread->ret_val = returnval;
     for (int i = 0; i < num_mutex; i++) {
         if (mutexArray[i]->holder == thread) {
-            RVCWriteText1("releasing mx in term\n", 21);
             mutexArray[i] -> holder = NULL;
             mutexArray[i] -> unlocked = 1;
         }
@@ -973,7 +917,7 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
             return RVCOS_STATUS_SUCCESS;
         }
         else {
-            *returnref = (TThreadReturn)waitThread->ret_val; // not sure what this is for
+            *returnref = (TThreadReturn)waitThread->ret_val; 
             return RVCOS_STATUS_SUCCESS;
         }
         
@@ -997,8 +941,7 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
             schedule();
             *returnref = (TThreadReturn)currThread->ret_val;
             return RVCOS_STATUS_SUCCESS;
-        }
-        //*returnref = (TThreadReturn)waitThread->ret_val;   
+        } 
         return RVCOS_STATUS_SUCCESS;
     }
 }
@@ -1006,6 +949,9 @@ TStatus RVCThreadWait(TThreadID thread, TThreadReturnRef returnref, TTick timeou
 TStatus RVCThreadID(TThreadIDRef threadref){
     if (threadref == NULL){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
+    }
+    if(upcallFlag == 1){
+        return RVCOS_THREAD_ID_INVALID;
     }
     *threadref = get_tp();
     return RVCOS_STATUS_SUCCESS;
@@ -1072,8 +1018,6 @@ TStatus RVCThreadSleep(TTick tick) {
         current->ticks = tick;
         current->state = RVCOS_THREAD_STATE_WAITING;
         insertRQ(sleeperQ, current->tid);
-        //sleepers[sleeperCursor] = current;
-        //sleeperCursor++;
         numSleepers++;
         schedule();
         return RVCOS_STATUS_SUCCESS;
@@ -1084,7 +1028,7 @@ TStatus RVCTickMS(uint32_t *tickmsref) {
     if (tickmsref == NULL) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-    *tickmsref = 2; // 2000/MTIME;
+    *tickmsref = 2; // 5 for project 4
     return RVCOS_STATUS_SUCCESS;
 }
 
@@ -1099,7 +1043,6 @@ TStatus RVCTickCount(TTickRef tickref) {
 }
 
 TStatus RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef memoryref) {
-    RVCWriteText1("mpool create\n", 13);
     if (base == NULL || size < 128) {
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
@@ -1125,8 +1068,7 @@ TStatus RVCMemoryPoolCreate(void  *base,  TMemorySize  size,  TMemoryPoolIDRef m
 }
 
 TStatus RVCMemoryPoolDelete(TMemoryPoolID memory) {
-    RVCWriteText1("mpool delete\n", 13);
-    if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM) { // Or if memory is invalid memory pool
+    if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM) { 
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     if (memPoolArray[memory] == NULL || memory == -1){
@@ -1137,26 +1079,22 @@ TStatus RVCMemoryPoolDelete(TMemoryPoolID memory) {
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
-        global_mpid_nums--;
         RVCMemoryPoolDeallocate(0, curPool);
         curPool = NULL;
         memPoolArray[memory] = NULL;
         return RVCOS_STATUS_SUCCESS;
     }
-    // if any memory has been allocated from the pool and is not deallocated
-    //   return RVCOS_STATUS_ERROR_INVALID_STATE 
 }
 
 TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
-    if (bytesleft == NULL) { // Or if memory is invalid memory pool
+    if (bytesleft == NULL) { 
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     else if (memory == 0) {
-        //*bytesleft = memPoolArray[0]->size;
-        *bytesleft = 1000000;
+        *bytesleft = 1000000; // arbitrary large size
         return RVCOS_STATUS_SUCCESS;
     }
-    else if (memory == -1 || memPoolArray[memory] == NULL) { // if memory is invalid memory pool
+    else if (memory == -1 || memPoolArray[memory] == NULL) { 
         return RVCOS_STATUS_ERROR_INVALID_ID;
     } else {
         *bytesleft = memPoolArray[memory]->freeSize;
@@ -1164,32 +1102,25 @@ TStatus RVCMemoryPoolQuery(TMemoryPoolID memory, TMemorySizeRef bytesleft) {
     }
 }
 
-// allocsc
-// check for looping lists
 TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **pointer) {
-    if (size == 0 || pointer == NULL ) { // Or if memory is invalid memory pool
+    if (size == 0 || pointer == NULL ) { 
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     else if (memory == RVCOS_MEMORY_POOL_ID_SYSTEM){
         if (size > 1000000) {
-            RVCWriteText1("insuff resrc mempoolalloc\n", 26);
             return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
         } else {
             *pointer = (void *)malloc(size);
             return RVCOS_STATUS_SUCCESS;
-        }
-        
+        }  
     }
     else if (memPoolArray[memory] == NULL || memory == -1){
-        RVCWriteText1("null resrc mempoolalloc\n", 24);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(memPoolArray[memory]->freeSize < size){
-        RVCWriteText1("non-sys insuff resrc mempoolalloc\n", 33);
         return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
     }
     else{
-        //RVCWriteText1("mpool alloc\n", 12);
         struct MPCB *currPool = memPoolArray[memory];
         uint32_t alloc_size = ((size + 63)/64) * 64;
         FreeChunkRef cur = currPool->firstFree;
@@ -1217,7 +1148,6 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
                     newnode->base = cur->base;
                     newnode->size = alloc_size;
                     cur->base += alloc_size;
-                    //curPool->size -= alloc_size;
 
                     FreeChunkRef tmp = currPool->allocList; // add newnode to alloc
                     newnode -> next = tmp;
@@ -1230,14 +1160,13 @@ TStatus RVCMemoryPoolAllocate(TMemoryPoolID memory, TMemorySize size, void **poi
             prev = cur;
             cur = cur->next;
         }
-
         return RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES;
     }
 }
 
+// worked with Professor Nitta in office hours while sharing screen (just in case someone took a picture of our code)
 TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
-    //RVCWriteText1("mpool dealloc\n", 14);
-    if (pointer == NULL) { // Or if memory is invalid memory pool
+    if (pointer == NULL) { 
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     if (memory == 0) {
@@ -1255,15 +1184,12 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
     FreeChunkRef newFree = NULL; 
     while (curAlloc) {
         if (curAlloc->base == pointer) {
-            // found in alloclist
             if (prevAlloc) { // If prevAlloc exists (its not first one chunk in freelist)
                 if (curAlloc->next) {
                    prevAlloc->next = curAlloc->next;
                 } else {
                    prevAlloc->next = NULL;
                 }
-                //prevAlloc->next = curAlloc->next;
-                
             }
             else { // the chunk found is first in freelist
                 if (curAlloc->next) {
@@ -1271,8 +1197,6 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
                 } else {
                    mPool->allocList = NULL;
                 }
-                //mPool->allocList = curAlloc->next;
-                
             }
              // remove node from alloclist
             newFree = curAlloc;
@@ -1282,10 +1206,8 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
         curAlloc = curAlloc->next;
     }
     if (!curAlloc) {
-        RVCWriteText1("null curalloc\n", 14);
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
-
     while(curFree) { //trying to add newFree back to freelist
         if (newFree->base < curFree->base) { // if the deallocating chunk base is to left of freelist chunk base
             newFree->next = curFree;    // deallocating chunk's next is freelist chunk
@@ -1306,8 +1228,6 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
             mPool->firstFree = newFree; // (list is empty) insert as first
             newFree->next = NULL;
         }
-        // didn't insert newfree into freelist
-        // either freelist empty or ran through entire list
     }
     if (prevFree && prevFree->base + prevFree->size == newFree->base) {
         prevFree->size += newFree->size;
@@ -1321,7 +1241,6 @@ TStatus RVCMemoryPoolDeallocate(TMemoryPoolID memory, void *pointer) {
         DeallocateFreeChunk(curFree);
     }
     mPool->freeSize += curFree->size;
-
     return RVCOS_STATUS_SUCCESS;
 }
 
@@ -1341,7 +1260,6 @@ TStatus RVCMutexCreate(TMutexIDRef mutexref) {
     *mutexref = num_mutex;
     num_mutex ++;
     return RVCOS_STATUS_SUCCESS;
-
 }
 
 TStatus RVCMutexDelete(TMutexID mutex) {
@@ -1349,7 +1267,6 @@ TStatus RVCMutexDelete(TMutexID mutex) {
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(mutexArray[mutex]->unlocked == 0){
-        RVCWriteText1("locked in delete\n", 17);
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
@@ -1357,24 +1274,18 @@ TStatus RVCMutexDelete(TMutexID mutex) {
         RVCMemoryPoolDeallocate(0, mx);
         mx = NULL;
         mutexArray[mutex] = NULL;
-        //num_mutex--;
         return RVCOS_STATUS_SUCCESS;   
     }
 }
 
 TStatus RVCMutexQuery(TMutexID mutex, TThreadIDRef ownerref) {
     if (ownerref == NULL) {
-        RVCWriteText1("null owner\n", 11);
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER; 
     }
-    // If mutex is unlocked
-    // If mutex doesn't exist
     if (mutexArray[mutex] == NULL || mutex == -1) {
-        RVCWriteText1("noId ownver\n", 12);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     if (mutexArray[mutex]->unlocked) {
-        RVCWriteText1("unlock owner\n", 14);
         *ownerref = RVCOS_THREAD_ID_INVALID;
         return RVCOS_STATUS_SUCCESS;
     }
@@ -1430,10 +1341,6 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
                  return RVCOS_STATUS_FAILURE;
                 
             }
-            // set currthread to waiting, add thread to pq, 
-            //insert(mx->pq, currThread->tid, currThread->priority);
-            // need to schedule the next thread cause this one is waiting for the mutex to be released
-
             schedule();
         }
         return RVCOS_STATUS_FAILURE;
@@ -1441,20 +1348,14 @@ TStatus RVCMutexAcquire(TMutexID mutex, TTick timeout) {
     return RVCOS_STATUS_SUCCESS;
 }
 
-//RVCMutexRelease() releases the mutex specified by the mutex parameter that is currently held by 
-// the running thread. Release of the mutex may cause another higher priority thread to be scheduled 
-// if it acquires the newly released mutex.  
 TStatus RVCMutexRelease(TMutexID mutex) {
     if (mutexArray[mutex] == NULL) {
-        //RVCWriteText1("invalid release id\n", 19);
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
     else if(mutexArray[mutex]->holder != get_tp()){ 
-        //RVCWriteText1("holder not current\n", 19);
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
     else{
-        //RVCWriteText1("releasing mx\n", 13);
         struct Mutex *mx = mutexArray[mutex];
         mx->holder = NULL;
         mx->unlocked = 1;
@@ -1497,7 +1398,6 @@ TStatus RVCChangeVideoMode(TVideoMode mode){
     currentThread->writesize = 0; // this will signal that its a video mode change instead of blocking for a write
     currentThread->state = RVCOS_THREAD_STATE_WAITING;
     insertRQ(writerQ, currentThread->tid);
-    // Insert current before scheduling
     schedule();
     return RVCOS_STATUS_SUCCESS;
 }
@@ -1510,22 +1410,23 @@ TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     if(num_of_buffers >= offscreenBufferArraySize){  // number of buffers exceeeds current size of array
-            // double size
             offscreenBufferArraySize *= 2;
             int newSize = offscreenBufferArraySize;
             struct GCB **temp;
             RVCMemoryPoolAllocate(0, offscreenBufferArraySize * sizeof(void *), (void**)temp);
-            for (int i=0; i < offscreenBufferArraySize; i++) {
-                temp[i] = offscreenBufferArray[i];
-            }
             for (int i = 0; i < offscreenBufferArraySize; i++) {
                 offscreenBufferArray[i] = NULL;
             }
+            for (int i=0; i < offscreenBufferArraySize; i++) {
+                temp[i] = offscreenBufferArray[i];
+            }
+            
             RVCMemoryDeallocate(offscreenBufferArray);
             offscreenBufferArray = temp;
             offscreenBufferArraySize = newSize;
     }
-    struct GCB* newGraphic = AllocateGCB();
+    struct GCB* newGraphic;
+    RVCMemoryPoolAllocate(0, sizeof(struct GCB), (void**)&newGraphic);
     if(type == RVCOS_GRAPHIC_TYPE_FULL){
         RVCMemoryAllocate(512*288,&newGraphic->buffer);
         newGraphic->height = 512;
@@ -1543,6 +1444,7 @@ TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
     }
     newGraphic->type = type;
     newGraphic->gid = global_gid_nums;
+    newGraphic->dirty = 0; // not dirty
     newGraphic->state = RVCOS_GRAPHIC_STATE_DEACTIVATED;  
     offscreenBufferArray[global_gid_nums] = newGraphic;
     *gidref = global_gid_nums;
@@ -1551,29 +1453,25 @@ TStatus RVCGraphicCreate(TGraphicType type, TGraphicIDRef gidref){
     return RVCOS_STATUS_SUCCESS;
 }
 
-TStatus RVCGraphicDelete(TGraphicID gid){
-    return RVCOS_STATUS_SUCCESS;
-}
-
 void convertPosAndDim(struct GCB* graphic,SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteID pid, int i){
     if(graphic->type == RVCOS_GRAPHIC_TYPE_FULL){
-        BackgroundControls[i].DXOffset = pos->DXPosition - 512;
-        BackgroundControls[i].DYOffset = pos->DYPosition - 288;
+        BackgroundControls[i].DXOffset = 512 + pos->DXPosition;// + 512;
+        BackgroundControls[i].DYOffset = 288 + pos->DYPosition;// + 288;
         BackgroundControls[i].DZ = pos->DZPosition;
         BackgroundControls[i].DPalette = pid;
     }
     else if(graphic->type == RVCOS_GRAPHIC_TYPE_LARGE){
-        LargeSpriteControls[i].DHeight = dim->DHeight;
-        LargeSpriteControls[i].DWidth = dim->DWidth;
-        LargeSpriteControls[i].DXOffset = pos->DXPosition - 64;
-        LargeSpriteControls[i].DYOffset = pos->DYPosition - 64;
+        LargeSpriteControls[i].DHeight = dim->DHeight - 33;
+        LargeSpriteControls[i].DWidth = dim->DWidth - 33;
+        LargeSpriteControls[i].DXOffset = pos->DXPosition + 64;
+        LargeSpriteControls[i].DYOffset = pos->DYPosition + 64;
         LargeSpriteControls[i].DPalette = pid;
     }
     else{
-        SmallSpriteControls[i].DHeight = dim->DHeight;
-        SmallSpriteControls[i].DWidth = dim->DWidth;
-        SmallSpriteControls[i].DXOffset = pos->DXPosition - 16;
-        SmallSpriteControls[i].DYOffset = pos->DYPosition - 16;
+        SmallSpriteControls[i].DHeight = dim->DHeight - 1;
+        SmallSpriteControls[i].DWidth = dim->DWidth - 1;
+        SmallSpriteControls[i].DXOffset = pos->DXPosition + 16;
+        SmallSpriteControls[i].DYOffset = pos->DYPosition + 16;
         SmallSpriteControls[i].DPalette = pid;
     }
 
@@ -1632,17 +1530,12 @@ int validateParams(struct GCB* graphic,SGraphicPositionRef pos, SGraphicDimensio
 }
 
 TStatus RVCGraphicActivate(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteID pid){
-  /*  Upon successful activation of the background buffer, RVCGraphicActivate() returns 
-    RVCOS_STATUS_SUCCESS. If the graphic buffer identifier gid does not exist or if the palette 
-    identifier pid does not exist, then RVCOS_STATUS_ERROR_INVALID_ID is returned. If pos is 
-    NULL, dim is NULL for a non-FULL graphic, or if pos or dim non-NULL but are out of range for 
-    the  type  of  graphic  then  RVCOS_STATUS_ERROR_INVALID_PARAMETER  is  returned.  If 
-    there are insufficient video hardware resources to activate the graphic buffer, then 
-    RVCOS_STATUS_ERROR_INSUFFICIENT_RESOURCES  is  returned.  If  the  graphic  buffer 
-    has a pending activation, then RVCOS_STATUS_ERROR_INVALID_STATE is returned*/
     if(offscreenBufferArray[gid] == NULL){ // also need to include if the palette exists
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
+    //else if(paletteArray[pid] == NULL){
+    //    return RVCOS_STATUS_ERROR_INVALID_ID;
+    //}
     struct GCB* graphic = offscreenBufferArray[gid];
     if(dim == NULL && pos == NULL && (graphic->type == RVCOS_GRAPHIC_TYPE_LARGE || graphic->type == RVCOS_GRAPHIC_TYPE_SMALL)){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER; 
@@ -1653,15 +1546,17 @@ TStatus RVCGraphicActivate(TGraphicID gid, SGraphicPositionRef pos, SGraphicDime
     if(graphic->state == RVCOS_GRAPHIC_STATE_PENDING){
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
-    graphic->state = RVCOS_GRAPHIC_STATE_PENDING;
-    if(graphic->type == RVCOS_GRAPHIC_TYPE_FULL){
-        insertRQ(backgroundQ, gid);
-    }
-    else if(graphic->type == RVCOS_GRAPHIC_TYPE_LARGE){
-        insertRQ(largeSpriteQ, gid);
-    }
-    else{
-        insertRQ(smallSpriteQ, gid);
+    if(graphic->dirty == 1){ // if the graphic is dirty, it needs to be copied into video hardware
+        graphic->state = RVCOS_GRAPHIC_STATE_PENDING;
+        if(graphic->type == RVCOS_GRAPHIC_TYPE_FULL){
+            insertRQ(backgroundQ, gid);
+        }
+        else if(graphic->type == RVCOS_GRAPHIC_TYPE_LARGE){
+            insertRQ(largeSpriteQ, gid);
+        }
+        else{
+            insertRQ(smallSpriteQ, gid);
+        }
     }
     return RVCOS_STATUS_SUCCESS;
 }
@@ -1673,43 +1568,30 @@ TStatus RVCGraphicDeactivate(TGraphicID gid){
     else if(offscreenBufferArray[gid]->state == RVCOS_GRAPHIC_STATE_ACTIVATED || offscreenBufferArray[gid]->state == RVCOS_GRAPHIC_STATE_PENDING){
         return RVCOS_STATUS_ERROR_INVALID_STATE;
     }
+    struct GCB* graphic = offscreenBufferArray[gid];
     offscreenBufferArray[gid]->state = RVCOS_GRAPHIC_STATE_DEACTIVATED;
+    if(graphic->type == RVCOS_GRAPHIC_TYPE_FULL){
+        //BackgroundControls[0].DXOffset = 0;
+        //BackgroundControls[0].DYOffset = 0;
+        //BackgroundControls[0].DZ = pos->DZPosition;
+        //BackgroundControls[0].DPalette = pid;
+    }
+    else if(graphic->type == RVCOS_GRAPHIC_TYPE_LARGE){
+        //LargeSpriteControls[0].DHeight = dim->DHeight;
+        //LargeSpriteControls[0].DWidth = dim->DWidth;
+        LargeSpriteControls[0].DXOffset = 0;
+        LargeSpriteControls[0].DYOffset = 0;
+        //LargeSpriteControls[0].DPalette = pid;
+    }
+    else{
+        //SmallSpriteControls[0].DHeight = 0;
+        //SmallSpriteControls[0].DWidth = 0;
+        //SmallSpriteControls[0].DXOffset = 0;
+        //SmallSpriteControls[0].DYOffset = 0;
+        //SmallSpriteControls[0].DPalette = pid;
+    }
     return RVCOS_STATUS_SUCCESS;
 }
-
-/*int* determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth, int graphicSize, int **bufPosArray){
-    int *overlap;
-    int *buf;
-    RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&overlap); //147456 = max pixels in graphic
-    RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&buf);
-    int topLeft = (pos->DYPosition * graphic->width) + pos->DXPosition;
-    int srcPos = 0;
-    int graphPos = 0;
-    int row = 0; // row in source
-    int col = 0; // col in source
-    int i = 0; // index of overlap array
-    while(1) {
-        if (srcPos > (dim->DHeight-1 * srcwidth) + dim->DWidth-1) {
-            break;
-        }
-        if (col <= dim->DWidth - 1 && row <= dim->DHeight - 1) {
-            overlap[i] = srcPos;
-            buf[i] = graphPos + topLeft;
-            i++;
-        }
-        if (col == srcwidth - 1) {
-            col = 0;
-            row++;
-            graphPos += graphic->width - srcwidth - 1;
-        } else {
-            col++;
-        }
-        srcPos++;
-    }
-    *bufPosArray = buf;
-    RVCMemoryPoolDeallocate(0, buf);
-    return overlap;
-}*/
 
 void determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDimensionsRef dim, uint32_t srcwidth, int graphicSize, int *srcBegin, int *destBegin){
     int x;
@@ -1728,40 +1610,9 @@ void determineOverlap(struct GCB* graphic, SGraphicPositionRef pos, SGraphicDime
     }
     *destBegin = (y * graphic->width) + x;
     *srcBegin = (srcY * srcwidth) + srcX;
-
-    // ex) -2, -2 = 0 src = 0
-    // ex) 6, -3 = 0 * width + 6 = 6
-    // src = 3 * 6 + 0= 18
-
-
-
-
-    // if(pos->DXPosition < 0 && pos->DYPosition < 0){
-    //     *srcBegin = -pos->DYPosition*srcwidth + -pos->DXPosition;
-    //     //*destBegin = 0;
-    // }
-    // else{
-    //     *srcBegin = 0;
-    // }
 }
 
-
-
 TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensionsRef dim, TPaletteIndex *src, uint32_t srcwidth){
-    /*Upon successful activation of the background buffer, RVCGraphicDraw() returns 
-    RVCOS_STATUS_SUCCESS. If the graphic buffer identifier gid does not exist, then 
-    RVCOS_STATUS_ERROR_INVALID_ID  is  returned.  If  pos  is  NULL,  dim  is  NULL,  src  is 
-    NULL or srcwidth is less than DWidth in dim, then 
-    RVCOS_STATUS_ERROR_INVALID_PARAMETER is returned. If the buffer has been 
-    activated, but the activation has not completed (the upcall has not been invoked), then 
-    RVCOS_STATUS_ERROR_INVALID_STATE is returned. */
-    /*struct GCB* graphic = offscreenBufferArray[gid];
-    graphic->buffer = graphic->buffer + pos->DYPosition*dim->DWidth +pos->DXPosition;
-    for(int i = 0; i< row_count; i++){
-        memcpy(graphic->buffer, src, col_count);
-        graphic->buffer += dim->DWidth;
-        src += srcwidth;
-    }*/
     if(offscreenBufferArray[gid] == NULL){
         return RVCOS_STATUS_ERROR_INVALID_ID;
     }
@@ -1771,72 +1622,29 @@ TStatus RVCGraphicDraw(TGraphicID gid, SGraphicPositionRef pos, SGraphicDimensio
     // need to account for the upcall once we implement it
     struct GCB* graphic = offscreenBufferArray[gid];
     int graphicSize = dim->DWidth * dim->DHeight;
-    //int *bufPosArray;
-    //RVCMemoryPoolAllocate(0, graphicSize * sizeof(int), (void**)&bufPosArray);
     int srcBegin, destBegin;
     determineOverlap(graphic, pos, dim, srcwidth, graphicSize, &srcBegin, &destBegin);
-
-    //TPaletteIndex *graphic_buffer = graphic->buffer + destBegin; 
-
     src = src + srcBegin;
-
-    //TPaletteIndexRef offscreenBuffer;
-    //RVCMemoryAllocate(512*288, offscreenBuffer);
-    TPaletteIndex *buffer = graphic->buffer + (pos->DYPosition * graphic->width) + pos->DXPosition;// + destBegin;//offscreenBuffer;// + destBegin;
+    TPaletteIndex *buffer = graphic->buffer + destBegin;
     for(int i = 0; i < dim->DHeight; i++){
         memcpy(buffer, src, dim->DWidth);
-        char buff[20];
-        //uint8_t id = buffer[i];
-        uint8_t id = src[i];
-        itoa(id, buff, 10);
-        RVCWriteText1(buff, 2);
         buffer += graphic->width;
         src += srcwidth;
     }
-    //graphic->buffer = offscreenBuffer;
-
-    // does not cause an mcause 5 starts here ----------------------------------------------------------------
-
-    //memcpy(graphic_buffer, src, 1);
-    //char buff[20];
-    //uint8_t id = graphic_buffer[0];
-    //uint8_t id = src[1];
-    //itoa(id, buff, 10);
-    //RVCWriteText1(buff, 1);
-
-    // ends here ---------------------------------------------------------------------------------------------
-
-    // causes mcause 5
-
-    /*for(int i = 0; i< dim->DHeight; i++){
-        memcpy(graphic_buffer, src, dim->DWidth);  // memcpy not working
-        char buff[20];
-        uint8_t id = graphic_buffer[i];
-        //uint8_t id = src[i];
-        itoa(id, buff, 10);
-        RVCWriteText1(buff, 10);
-        graphic_buffer += graphic->width;
-        src += srcwidth;
-    }*/
-
-    //causes mcause 5
-
-    /*for(int i = 0; i< graphicSize; i++){
-        int buffPos = bufPosArray[i];
-        int srcPos = srcOverlap[i];
-        // graphic->buffer = buffer + buffPos
-        memcpy((int)graphic->buffer + buffPos, src[srcPos], 1);
-    }*/
-
+    graphic->dirty = 1;
     return RVCOS_STATUS_SUCCESS;
+}
 
-    // // ouch ouch my brain hurts. I will come back to this later
-    // for (int i = 0; i < graphicSize; i++) {
-    //     int srcRow = srcOverlap[i] + 1 / (dim->DWidth) - 1;
-    //     int srcCol = srcOverlap[i] % (dim->DWidth) - 1;
-    //     bufPosArray[i] = topLeft + srcOverlap[i];
-
-    // }
+TStatus RVCGraphicDelete(TGraphicID gid){
+    if(offscreenBufferArray[gid] == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    else if(offscreenBufferArray[gid]->state != RVCOS_GRAPHIC_STATE_ACTIVATED && offscreenBufferArray[gid]-> state != RVCOS_GRAPHIC_STATE_PENDING){
+        return RVCOS_STATUS_ERROR_INVALID_STATE;
+    }
+    RVCMemoryDeallocate(offscreenBufferArray[gid]->buffer);
+    RVCMemoryDeallocate(offscreenBufferArray[gid]);
+    return RVCOS_STATUS_SUCCESS;
 }
 
 TStatus RVCPaletteCreate(TPaletteIDRef pidref){
@@ -1844,11 +1652,10 @@ TStatus RVCPaletteCreate(TPaletteIDRef pidref){
         return RVCOS_STATUS_ERROR_INVALID_PARAMETER;
     }
     //Remember that palettes may be  activated by more one than graphic, so you will need  to  maintain a reference list. 
-    struct PCB* newPalette = AllocatePCB();
-    //newPalette->buffer = 
+    struct PCB* newPalette;
+    RVCMemoryPoolAllocate(0, sizeof(struct PCB), (void**)&newPalette);
     RVCMemoryAllocate(256*sizeof(SColor),&newPalette->buffer);
     newPalette->pid = global_pid_nums;
-    //newPalette->state = RVCOS_GRAPHIC_STATE_DEACTIVATED;  
     paletteArray[global_pid_nums] = newPalette;
     *pidref = global_pid_nums;
     global_pid_nums++;
@@ -1856,6 +1663,11 @@ TStatus RVCPaletteCreate(TPaletteIDRef pidref){
 }
 
 TStatus RVCPaletteDelete(TPaletteID pid){
+    if(paletteArray[pid] == NULL){
+        return RVCOS_STATUS_ERROR_INVALID_ID;
+    }
+    RVCMemoryDeallocate(paletteArray[pid]->buffer);
+    RVCMemoryDeallocate(paletteArray[pid]);
     return RVCOS_STATUS_SUCCESS;
 }
 
@@ -1872,23 +1684,17 @@ TStatus RVCPaletteUpdate(TPaletteID pid, SColorRef cols, TPaletteIndex offset, u
     // If the color palette is currently being used by a graphic with a pending activation, RVCOS_STATUS_ERROR_INVALID_STATE is returned. 
     struct PCB* palette = paletteArray[pid];
     SColorRef palette_offset = palette->buffer + offset;
-    //palette->buffer += offset;
-    //for(int i = 0; i < count; i++){
     memcpy(palette_offset, cols, count);
-    //}
     return RVCOS_STATUS_SUCCESS;
 }
 
 TStatus RVCSetVideoUpcall(TThreadEntry upcall, void *param){
-
+    UpcallPointer = (TUpcallPointer)upcall;
+    UpcallParam = (void *)param;
     return RVCOS_STATUS_SUCCESS;
 }
 
 int main() {
-    // see piazza post 981
-    // InitPointers(); // not sure if these go in main but or RVCInitialize, but these were in main in the discussion code
-    // memcpy((void *)BackgroundPalettes[0],RVCOPaletteDefaultColors,256 * sizeof(SColor)); // loads the colors from DefaultPalette.c in Background Palette 0 
-    // memcpy((void *)SpritePalettes[0],RVCOPaletteDefaultColors,256 * sizeof(SColor)); // load the colors from DefaultPalette.c in Sprite Palette 0
     saved_sp = &CART_STAT_REG; // was used to see how the compiler would assign the save_sp so we could
     while(1){                      // do it in assembly in the enter_cartridge function
         if(CART_STAT_REG & 0x1){
@@ -1929,15 +1735,15 @@ uint32_t c_syscall_handler(uint32_t p1,uint32_t p2,uint32_t p3,uint32_t p4,uint3
         case 0x15: return RVCMutexAcquire((void *)p1, (void *)p2);
         case 0x16: return RVCMutexRelease ((void *)p1);
         case 0x17: return RVCChangeVideoMode (p1);
-        //case 0x18: return RVCSetVideoUpcall (p1,p2);
+        case 0x18: return RVCSetVideoUpcall (p1,p2);
         case 0x19: return RVCGraphicCreate (p1,p2);
         case 0x1A: return RVCGraphicDelete (p1);
         case 0x1B: return RVCGraphicActivate(p1,p2,p3,p4);
         case 0x1C: return RVCGraphicDeactivate(p1);
         case 0x1D: return RVCGraphicDraw(p1,p2,p3,p4,p5);
-        // case 0x1E: return RVCPaletteCreate(p1);
-        // case 0x1F: return RVCPaletteDelete(p1);
-        // case 0x20: return RVCPaletteUpdate(p1,p2,p3,p4);
+        case 0x1E: return RVCPaletteCreate(p1);
+        case 0x1F: return RVCPaletteDelete(p1);
+        case 0x20: return RVCPaletteUpdate(p1,p2,p3,p4);
     }
     return code + 1;
 }

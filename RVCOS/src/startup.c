@@ -119,12 +119,13 @@ typedef struct {
 } SVideoControllerMode, *SVideoControllerModeRef;
 
 struct GCB{
+    int dirty;
     TGraphicID gid;
     TGraphicType type;
     TGraphicState state;
     int height;
     int width;
-    void *buffer;
+    TPaletteIndex *buffer;
 } ;
 
 struct TCB{
@@ -132,7 +133,6 @@ struct TCB{
     uint32_t *gp;
     TThreadState state; // different states: running, ready, dead, waiting, created
     TThreadPriority priority; // different priorities: high, normal, low
-    //int pid;
     uint32_t *sp;
     TMemorySize memsize;
     TThreadEntry entry;
@@ -145,16 +145,20 @@ struct TCB{
     TMemorySize writesize;
 };
 
+typedef void (*TUpcallPointer)(void *param);
+extern volatile TUpcallPointer UpcallPointer;
+extern volatile void *UpcallParam;
+
 extern volatile int global;
 extern volatile int tick_count;
 extern volatile uint32_t controller_status;
-//extern struct TCB* sleepers[256];
 extern volatile int numSleepers;
 extern void schedule(); 
 extern void enqueueThread(struct TCB* thread);
 extern volatile int sleeperCursor;
 extern TStatus RVCWriteText(const TTextCharacter *buffer, TMemorySize writesize);
 extern TThreadID get_tp(void);
+extern uint32_t * get_gp(void);
 extern struct TCB** threadArray;
 extern struct GCB** offscreenBufferArray;
 extern struct ReadyQ *sleeperQ;
@@ -179,6 +183,9 @@ extern volatile SLargeSpriteControl *LargeSpriteControls;// = (volatile SLargeSp
 extern volatile SSmallSpriteControl *SmallSpriteControls;// = (volatile SSmallSpriteControl *)0x500FF214;
 extern volatile SVideoControllerMode *ModeControl;// = (volatile SVideoControllerMode *)0x500FF414;
 
+extern volatile int upcallFlag;
+extern volatile uint32_t *saved_sp;
+
 struct ReadyQ{
     int* queue;
     int front;
@@ -186,12 +193,9 @@ struct ReadyQ{
     int size;
 };
 
-
 void video_interrupt_handler(void){
     if(INTR_PEND_REG & 0x2){
         INTR_PEND_REG = 0x2;
-        // video interrupt
-        //RVCWriteText("video interrupt\n",15);
         struct TCB* curr = threadArray[get_tp()];
         int flag = 0;
 	    while(writerQ->size){
@@ -207,7 +211,6 @@ void video_interrupt_handler(void){
                 enqueueThread(thread);
             }
             if(thread->priority > curr->priority){
-                //RVCWriteText1("scheduling!\n", 12);
                 flag = 1;
             }
             
@@ -217,19 +220,25 @@ void video_interrupt_handler(void){
             struct GCB* graphic = offscreenBufferArray[graphicID];
             graphic->state = RVCOS_GRAPHIC_STATE_ACTIVATED;
             memcpy((void *)BackgroundData[0],graphic->buffer,512*288);
+            graphic->dirty = 0;
         }
         while(largeSpriteQ->size){
             int graphicID = removeRQ(largeSpriteQ);
             struct GCB* graphic = offscreenBufferArray[graphicID];
             graphic->state = RVCOS_GRAPHIC_STATE_ACTIVATED;
             memcpy((void *)LargeSpriteData[0],graphic->buffer,64*64);
+            graphic->dirty = 0;
         }
         while(smallSpriteQ->size){
             int graphicID = removeRQ(smallSpriteQ);
             struct GCB* graphic = offscreenBufferArray[graphicID];
             graphic->state = RVCOS_GRAPHIC_STATE_ACTIVATED;
             memcpy((void *)SmallSpriteData[0],graphic->buffer,16*16);
+            graphic->dirty = 0;
         }
+        //upcallFlag = 1;
+        //CallUpcall((void *)UpcallParam, (TUpcallPointer)UpcallPointer, (uint32_t *)get_gp(), (uint32_t *)saved_sp);
+        //upcallFlag = 0;
         if(flag){
             schedule();
         }
@@ -245,17 +254,12 @@ void timer_interrupt_handler()
     MTIMECMP_LOW = NewCompare;
     tick_count++;
 
-    // need to make sure its a timer interrupt
-    // save mepc
     struct TCB* curr = threadArray[get_tp()];
     if(num_of_threads > 2){
         if(curr->state != RVCOS_THREAD_STATE_DEAD){
             curr->state = RVCOS_THREAD_STATE_READY;
         }
-        //RVCWriteText1("main enqueued\n",14);
-    //    enqueueThread(curr);
     }
-
     global++;
     controller_status = CONTROLLER;
     for(int i = 0; i < sleeperQ->size; i++){
@@ -263,14 +267,10 @@ void timer_interrupt_handler()
         struct TCB* thread = threadArray[threadId];
         thread->ticks = thread->ticks - 1;      
         if(thread->ticks == 0){  // thread wakes up
-            //sleepers[i] == NULL;
             if(thread->state != RVCOS_THREAD_STATE_DEAD){
                 thread->state = RVCOS_THREAD_STATE_READY;
-                //numSleepers--;
                 enqueueThread(thread);
             }
-            //schedule(); 
-            // need to handle decrementing the numSleepers correctly
         }
         else{
             insertRQ(sleeperQ, threadId);
@@ -290,6 +290,5 @@ void c_interrupt_handler(uint32_t mcause){
         case 0x80000007: return timer_interrupt_handler();
         case 0x8000000B: return video_interrupt_handler();
     }
-    
 }
 

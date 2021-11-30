@@ -1,5 +1,5 @@
 .section .text, "ax"
-.global _interrupt_handler, enter_cartridge, call_th_ent, ContextSwitch, get_tp, set_tp, hardware_interrupt, video_interrupt, timer_interrupt
+.global _interrupt_handler, enter_cartridge, call_th_ent, ContextSwitch, get_tp, set_tp, get_gp, hardware_interrupt, CallUpcall
 .extern saved_sp
 
 _interrupt_handler:
@@ -25,13 +25,6 @@ _interrupt_handler:
     mret
 
 hardware_interrupt:
-#    csrr    ra,mcause
-#    slli    ra, ra, 1
-#    srli    ra, ra, 1 
-#    addi    ra,ra,-11             # the mcause will be 8000000b in the case of a Machine external interrupt
-#    beqz    ra,video_interrupt   
-#    bnez    ra, timer_interrupt  
-#    ret
    csrr ra,mscratch # puts mscratch into ra
    addi sp,sp,-48
    sw ra,44(sp)
@@ -71,88 +64,6 @@ hardware_interrupt:
    lw a5,0(sp)
    addi sp,sp,48
    mret
-
-# video_interrupt:
-#    csrr ra,mscratch # puts mscratch into ra
-#    addi sp,sp,-48
-#    sw ra,44(sp)
-#    csrr ra, mepc  # puts mepc into ra
-#    sw gp,40(sp)
-#    sw ra,36(sp)
-#    sw t0,32(sp)
-#    sw t1,28(sp)
-#    sw t2,24(sp)
-#    sw a0,20(sp)
-#    sw a1,16(sp)
-#    sw a2,12(sp)
-#    sw a3,8(sp)
-#    sw a4,4(sp)
-#    sw a5,0(sp)
-#    .option push
-#    .option norelax
-#    la gp, __global_pointer$
-#    .option pop
-#    call video_interrupt_handler
-
-#    lw gp,40(sp)
-   
-#    lw ra,36(sp)
-#    csrw mepc,ra
-   
-#    lw ra,44(sp)
-#    lw t0,32(sp)
-#    lw t1,28(sp)
-#    lw t2,24(sp)
-#    lw a0,20(sp)
-#    lw a1,16(sp)
-#    lw a2,12(sp)
-#    lw a3,8(sp)
-#    lw a4,4(sp)
-#    lw a5,0(sp)
-#    addi sp,sp,48
-#    mret
-
-#timer_interrupt:
-#    csrr ra,mscratch # puts mscratch into ra
-#    addi sp,sp,-48
-#    sw ra,44(sp)
-#    csrr ra, mepc  # puts mepc into ra
-#    sw gp,40(sp)
-#    sw ra,36(sp)
-#    sw t0,32(sp)
-#    sw t1,28(sp)
-#    sw t2,24(sp)
-#    sw a0,20(sp)
-#    sw a1,16(sp)
-#    sw a2,12(sp)
-#    sw a3,8(sp)
-#    sw a4,4(sp)
-#    sw a5,0(sp)
-#    .option push
-#    .option norelax
-#    la gp, __global_pointer$
-#    .option pop
-#    call c_interrupt_handler
-#    #lw ra,44(sp)
-#    lw gp,40(sp)
-#    #mv t1, ra
-#    lw ra,36(sp)
-#    csrw mepc,ra
-#    #mv ra, t1
-#    lw ra,44(sp)
-#    lw t0,32(sp)
-#    lw t1,28(sp)
-#    lw t2,24(sp)
-#    lw a0,20(sp)
-#    lw a1,16(sp)
-#    lw a2,12(sp)
-#    lw a3,8(sp)
-#    lw a4,4(sp)
-#    lw a5,0(sp)
-#    addi sp,sp,48
-#    mret
-
-
 
 enter_cartridge:
     addi    sp,sp,-12
@@ -230,4 +141,45 @@ get_tp:
 
 set_tp:
     mv tp,a0
+    ret
+
+get_gp:
+    mv  a0, gp
+    ret
+
+CallUpcall:
+    addi    sp,sp,-40
+    sw	    ra,36(sp)
+    sw	    t0,32(sp)
+    sw	    t1,28(sp)
+    sw	    t2,24(sp)
+    sw	    a0,20(sp)
+    sw	    a1,16(sp)
+    sw	    a2,12(sp)
+    sw	    a3,8(sp)
+    sw	    a4,4(sp)
+    sw	    a5,0(sp)
+    addi    a3,a3,-4
+    sw      sp,0(a3)
+    mv      sp,a3
+    mv      gp,a2
+    csrsi mstatus, 0x8 # enable interrupts
+    jalr    a1
+    csrci mstatus, 0x8 # disable interrupts
+    lw      sp,0(sp)
+    .option push
+    .option norelax
+    la gp, __global_pointer$
+    .option pop
+    lw	    ra,36(sp)
+    lw	    t0,32(sp)
+    lw	    t1,28(sp)
+    lw	    t2,24(sp)
+    lw	    a0,20(sp)
+    lw	    a1,16(sp)
+    lw	    a2,12(sp)
+    lw	    a3,8(sp)
+    lw	    a4,4(sp)
+    lw	    a5,0(sp)
+    addi    sp,sp,40
     ret
